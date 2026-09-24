@@ -962,7 +962,7 @@ def _eval_retrieval(items: list) -> dict:
 
 # ---------------- 前端 ----------------
 
-_STATIC = os.path.join(ROOT, "serving", "static")
+_STATIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 
 
 @app.get("/")
