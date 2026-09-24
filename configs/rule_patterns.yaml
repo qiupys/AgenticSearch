@@ -1,0 +1,306 @@
+# Tier 0 规则快通道模式库 —— 对齐 8域×42二级意图体系
+# 每个 pattern: {re: 正则, w: 权重}；类得分 = 命中 pattern 权重之和（每个 pattern 只计一次）
+# not_patterns 命中则否决该类；引擎取最高分类，同分取文件顺序靠前者
+# 置信度 = min(0.98, 0.55 + 0.12 * (score - 1))，score<min_score 不出规则结果
+version: "1.0"
+date: "2026-09-22"
+engine:
+  min_score: 1.0
+  composite_ratio: 0.8   # 次高分类（跨域）得分 >= best*ratio 时判复合
+
+classes:
+  INFO-01:
+    name: 行情价格查询
+    patterns:
+      - {re: "现价|最新价|最新报价|收盘价|开盘价|涨跌幅|涨停价|跌停价", w: 2.0}
+      - {re: "股价|行情|盘口|市值|净值|涨跌", w: 1.5}
+      - {re: "history|price|quote|market cap", w: 1.5}
+  INFO-02:
+    name: 板块与指数行情查询
+    patterns:
+      - {re: "板块(行情|表现|走势|轮动|涨幅|涨跌|强度)|板块今天|板块今日", w: 2.0}
+      - {re: "指数(点位|行情|表现|走势|涨跌)|大盘(走势|表现|点位)", w: 2.0}
+      - {re: "轮动|风格切换", w: 1.0}
+      - {re: "sector (performance|rotation)|index (level|performance)", w: 2.0}
+  INFO-03:
+    name: 资金筹码查询
+    patterns:
+      - {re: "主力(资金|动向|净流入|净流出|买卖)|资金(流向|动向|净流入|净流出)", w: 2.0}
+      - {re: "北向|南向|陆股通|龙虎榜|席位|游资", w: 2.0}
+      - {re: "筹码(集中度|分布|区间)?|两融|融资融券|融资余额", w: 1.5}
+      - {re: "股东(人数|户数)|换手率|量比|成交量|成交额", w: 1.0}
+      - {re: "money flow|institutional (buying|selling)|capital flow", w: 2.0}
+  INFO-04:
+    name: 基本面数据查询
+    patterns:
+      - {re: "财报|年报|季报|半年报|中报|三季报|业绩(预告|快报)?", w: 1.5}
+      - {re: "营收|净利润|毛利|净利|ROE|ROA|市盈率|市净率|PE\\b|PB\\b|估值|市值", w: 1.5}
+      - {re: "实际控制人|实控人|控股股东|股权(结构|关系|穿透)|母公司|子公司|什么关系", w: 2.0}
+      - {re: "评级|目标价|盈利预测|一致预期|机构预期", w: 1.5}
+      - {re: "解禁|限售|质押|增减持|回购|分红|股息|派息|除权|除息", w: 1.5}
+      - {re: "主营业务|主营构成|产品结构|市占率|市场份额|行业(地位|排名)", w: 1.5}
+      - {re: "订单|产能|产量|销量|出货量|排产|交付|中标", w: 1.5}
+      - {re: "上市(日期|时间)|股票代码|代码是多少|板块归属|属于(哪个|什么)板块", w: 1.5}
+      - {re: "revenue|earnings|financials|balance sheet|p/e|market cap|founding date|listing date|dividend|buyback|market share", w: 1.5}
+    not_patterns:
+      - "分析|解读|点评|为什么|怎么看|原因"
+  INFO-05:
+    name: 基金与ETF查询
+    patterns:
+      - {re: "ETF|联接基金|指数基金", w: 2.0}
+      - {re: "基金(净值|份额|规模|重仓|持仓|经理|费率|排名|收益)|基金经理", w: 2.0}
+      - {re: "申购|赎回|定投", w: 1.0}
+      - {re: "ETF|fund (nav|holdings|expense ratio|aum)", w: 2.0}
+  INFO-06:
+    name: 技术形态与指标查询
+    patterns:
+      - {re: "K线|MACD|KDJ|RSI|均线|布林|boll", w: 2.0}
+      - {re: "支撑(位|点)|压力(位|点)|金叉|死叉|背离|缺口", w: 2.0}
+      - {re: "技术(面|形态|指标)|形态|量价|多头排列|十字星|十字线", w: 1.5}
+      - {re: "support (level|zone)|resistance|moving average|macd|rsi|technical (indicator|pattern)", w: 2.0}
+    not_patterns:
+      - "分析|解读|怎么看|是什么意思|什么是|什么叫"
+  INFO-07:
+    name: 资讯与公告检索
+    patterns:
+      - {re: "新闻|消息|资讯|快讯|公告|通告|通函", w: 2.0}
+      - {re: "进展|进度|动态|动向|最新(消息|情况|动态|事件)", w: 1.5}
+      - {re: "事件|立案|监管(函|问询)?|处罚|警示|停牌|复牌|退市", w: 1.5}
+      - {re: "减持|增持|收购|并购|重组|借壳|定增|增发|合作|签约|投产|临床试验", w: 1.5}
+      - {re: "利好|利空", w: 1.0}
+      - {re: "news|announcement|press release|latest (news|update)|8-k|filing|s-1|prospectus", w: 2.0}
+    not_patterns:
+      - "预测|会不会|能否|什么时候能|推送|订阅|提醒|监控"
+  INFO-08:
+    name: 研报与观点检索
+    patterns:
+      - {re: "研报|研究报告|券商(报告|观点)", w: 2.0}
+      - {re: "机构(观点|评级|看法)|市场观点|观点", w: 1.5}
+      - {re: "董秘|互动易|互动平台|投资者互动|业绩(说明)?会|电话会议|纪要", w: 2.0}
+      - {re: "大V|社媒|微博|雪球|股吧|韭研公社|淘股吧", w: 2.0}
+      - {re: "research report|analyst (report|rating|view|opinion)|earnings call|conference call|transcript|twitter|reddit", w: 2.0}
+  INFO-09:
+    name: 多媒体与文献检索
+    patterns:
+      - {re: "图片|照片|截图|视频|直播|音频|播客", w: 2.0}
+      - {re: "论文|文献|书籍|图书|书|期刊", w: 2.0}
+      - {re: "法律|法规|法条|诉讼|仲裁|判决|律师", w: 2.0}
+      - {re: "paper|book|literature|law|regulation|statute|lawsuit|video|podcast", w: 2.0}
+  ANALYZE-01:
+    name: 基本面与业绩分析
+    patterns:
+      - {re: "业绩(分析|点评|怎么样|如何|符合预期|低于预期|超预期)", w: 2.0}
+      - {re: "财报(分析|解读|点评)|基本面(分析|怎么样)|深度分析|基本面如何", w: 2.0}
+      - {re: "竞争力|护城河|商业模式|盈利能力|成色|含金量", w: 1.5}
+      - {re: "fundamental analysis|earnings (analysis|review)|business model|competitive advantage|comprehensive review", w: 2.0}
+    not_patterns:
+      - "预测|会涨|会跌"
+  ANALYZE-02:
+    name: 技术面分析
+    patterns:
+      - {re: "技术面(分析|怎么样)|技术分析|走势分析|量价(分析|关系)", w: 2.0}
+      - {re: "technical analysis|chart (analysis|pattern)", w: 2.0}
+  ANALYZE-03:
+    name: 资金面分析
+    patterns:
+      - {re: "资金面(分析|怎么样)|资金(分析|动向分析)|主力(动向分析|行为分析)", w: 2.0}
+      - {re: "capital flow analysis|fund flow analysis", w: 2.0}
+  ANALYZE-04:
+    name: 情绪与风格分析
+    patterns:
+      - {re: "市场情绪|情绪(面|分析|周期|冰点|高涨)|风险偏好|赚钱效应|亏钱效应", w: 2.0}
+      - {re: "市场风格|风格(切换|分析)|主线(是什么|切换)", w: 2.0}
+      - {re: "market sentiment|risk (appetite|on|off)|risk-on", w: 2.0}
+  ANALYZE-05:
+    name: 对比分析
+    patterns:
+      - {re: "(区别|差异|对比|比较)($|。|？|\\?|，|,|和|与|哪个)", w: 2.0}
+      - {re: "哪个(更|好|值得|强|优)|谁(更|强)|哪一只|哪一个", w: 1.5}
+      - {re: "vs\\.?|VS", w: 1.5}
+      - {re: "compare|difference between|vs\\.?|which is better", w: 2.0}
+    not_patterns:
+      - "什么是|是什么意思|入门|教程"
+  ANALYZE-06:
+    name: 事件解读
+    patterns:
+      - {re: "(原因|是什么原因|为什么|为何).{0,12}$|原因(是|何在)", w: 2.0}
+      - {re: "怎么(回事|了|回事儿)|发生了什么", w: 2.0}
+      - {re: "影响(如何|怎样|多大)?|利好(兑现)?|利空|意味着|说明什么|透露|如何影响", w: 1.5}
+      - {re: "解读|点评|怎么看|如何看|咋看|分析(下|一下)?", w: 1.5}
+      - {re: "why (did|is|does|are|was|has)|what caused|impact of|implication", w: 2.0}
+    not_patterns:
+      - "回测|胜率"
+  ANALYZE-07:
+    name: 行业与宏观研判
+    patterns:
+      - {re: "行业(景气|格局|现状|前景|空间|规模|趋势|景气度|分析|研判|逻辑)", w: 2.0}
+      - {re: "景气度|竞争格局|供需|供给格局|产能格局|涨价|价格(趋势|走势)", w: 2.0}
+      - {re: "宏观(经济|政策|背景|环境)|货币政策|财政政策|美联储|降息|加息|汇率|GDP|CPI|PPI|流动性|国债收益率", w: 2.0}
+      - {re: "产业政策|发展规划|行业政策|产业链(现状|格局|变化|图谱)", w: 1.5}
+      - {re: "industry (outlook|landscape|trend|analysis)|macro|fed rate|inflation|cpi|monetary policy", w: 2.0}
+  PREDICT-01:
+    name: 水平与幅度预测
+    patterns:
+      - {re: "能涨到|会到|看到(多少|几)|目标价是多少|还有(多少|多大)(上涨)?(空间|幅度)", w: 2.0}
+      - {re: "盈利预测|业绩预测|预测.{0,8}(营收|净利|收入|利润)", w: 1.5}
+      - {re: "price target|forecast|outlook|how (high|far|much)", w: 1.5}
+  PREDICT-02:
+    name: 方向与趋势预测
+    patterns:
+      - {re: "会(涨|跌|反弹|回调|崩|牛|翻倍)吗|还能(涨|跌|买)吗|涨不涨|跌不跌", w: 2.0}
+      - {re: "未来(走势|趋势|方向|行情)|后续(走势|怎么走|如何)|接下来(怎么|会)", w: 2.0}
+      - {re: "走势(预测|预判|怎么看|如何)|趋势(将|会|预测)", w: 1.5}
+      - {re: "明日|明天|后天|下周|下月|连板|涨停(预测|概率)|还有机会(涨|涨吗)", w: 1.5}
+      - {re: "will (rise|fall|drop|rebound|rally|crash)|price (prediction|forecast)|stock (outlook|prediction)", w: 2.0}
+  PREDICT-03:
+    name: 相对比较与排名预测
+    patterns:
+      - {re: "哪个(会|先|更)(涨|跌|强|快|好)|谁(会|更)(涨|跌|强|赢)|谁跑赢|能否跑赢|会不会跑赢", w: 2.0}
+      - {re: "outperform|which (stock|one) will (win|perform)", w: 2.0}
+  PREDICT-04:
+    name: 状态与等级预测
+    patterns:
+      - {re: "会不会(进入|成为|迎来|走向)|是(牛市|熊市|顶部|底部|拐点)吗|见(顶|底)了吗", w: 2.0}
+      - {re: "处于(什么|哪个)(阶段|周期|位置)|周期(判断|阶段)", w: 1.5}
+      - {re: "is (it|this) a (bull|bear) market|market (top|bottom)", w: 2.0}
+  PREDICT-05:
+    name: 事件结果与时间预测
+    patterns:
+      - {re: "何时|什么时候(能|会|可以|通过|落地|上市|复牌|批复)", w: 2.0}
+      - {re: "会(通过|批准|成功|落地|重组成功|过会)吗|审核(通过)?(时间|预期)|预期(时间|何时)", w: 2.0}
+      - {re: "when will|how long (will|until)|expected to (close|complete|approve)", w: 2.0}
+  PREDICT-06:
+    name: 影响传导与路径预测
+    patterns:
+      - {re: "影响(传导|路径|链条)|传导(至|到|机制|路径)|会如何影响|波及|会不会传导", w: 2.0}
+      - {re: "ripple effect|spillover|how will .* affect", w: 2.0}
+  SELECT-01:
+    name: 简单条件选标的
+    patterns:
+      - {re: "概念股|龙头股|成分股|权重股|受益股|相关股|相关标的|对标", w: 2.0}
+      - {re: "有哪些(股票|个股|公司|标的|上市公司|板块|行业|基金|龙头)|哪(家|只|个)(公司|股票|上市公司)", w: 2.0}
+      - {re: "(个股|标的|产业链|受益股).{0,4}(梳理|盘点|一览|名单)|名单|股票池|一览", w: 1.5}
+      - {re: "股价(低于|不超过|以下).{0,6}(元|块)", w: 1.5}
+      - {re: "which (stocks|companies|sectors)|list of|stocks (with|that|under)", w: 2.0}
+    not_patterns:
+      - "推荐|值得买|帮我选"
+  SELECT-02:
+    name: 复杂条件推理选标的
+    patterns:
+      - {re: "受益(最大|最多|最直接)|最受益|弹性最大", w: 2.0}
+      - {re: "符合.{2,20}(条件|要求|标准).{0,10}(股票|标的|公司)", w: 2.0}
+      - {re: "most (benefit|exposed|geared)|best positioned", w: 2.0}
+  SELECT-03:
+    name: 主题与事件驱动选标的
+    patterns:
+      - {re: "产业链.{0,8}(龙头|个股|公司|标的|梳理)|上游|中游|下游", w: 1.5}
+      - {re: "主题投资|事件驱动|热点|风口|景气(赛道|方向|上行)|值得关注(的)?(标的|方向|板块|个股)", w: 1.5}
+      - {re: "龙头梳理|核心标的|高辨识度|稀缺标的", w: 1.5}
+      - {re: "受益(板块|方向|赛道)|机会(挖掘|在哪|在哪里)|潜力股|埋伏|提前布局", w: 1.5}
+      - {re: "supply chain|beneficiar|thematic|play on", w: 1.5}
+    not_patterns:
+      - "回测|胜率"
+  SELECT-04:
+    name: 标的推荐
+    patterns:
+      - {re: "推荐(几只|一些|个|几只股|股票|标的|个股|基金|代码)?|求推荐|荐股", w: 2.0}
+      - {re: "值得(买|投资|关注|拥有|持有)|可以买(什么|哪个|哪些)|买什么(股票|好|基金|代码)", w: 2.0}
+      - {re: "帮我(选|挑|选择|推荐)|怎么选(股|基金|标的)|选一下", w: 1.5}
+      - {re: "recommend|should i (buy|invest)|best stocks? to (buy|invest)|stock picks|picks for", w: 2.0}
+  QUANT-01:
+    name: 指标与估值计算
+    patterns:
+      - {re: "怎么算|如何计算|计算(一下|公式)?|是多少倍|折算|换算", w: 2.0}
+      - {re: "合理(市盈率|估值|价格)|估值(多少|合理|怎么算)|定价", w: 1.5}
+      - {re: "how (to|do you) calculate|valuation model|fair value", w: 2.0}
+  QUANT-02:
+    name: 组合与财务推演计算
+    patterns:
+      - {re: "资产组合|投资组合|组合(优化|配置|权重)|再平衡", w: 2.0}
+      - {re: "财务(推演|模型|预测模型)|现金流(预测|折现)|dcf", w: 2.0}
+      - {re: "portfolio (optimization|allocation|weight)|dcf model|cash flow forecast", w: 2.0}
+  QUANT-03:
+    name: 策略回测
+    patterns:
+      - {re: "回测|回撤|年化(收益|回报)|夏普|波动率|胜率|盈亏比|策略(收益|表现|有效性)", w: 2.0}
+      - {re: "历史(统计|规律|胜率)|日历效应", w: 1.5}
+      - {re: "backtest|sharpe|drawdown|win rate|annualized", w: 2.0}
+  QUANT-04:
+    name: 套利对冲与交易成本计算
+    patterns:
+      - {re: "套利|对冲(成本|策略)?|期现|跨期|跨市", w: 2.0}
+      - {re: "手续费|佣金|印花税|过户费|交易成本|滑点|税费", w: 2.0}
+      - {re: "arbitrage|hedg(e|ing) (cost|strategy)|commission|fee|slippage", w: 2.0}
+  TRADE-01:
+    name: 买卖点位建议
+    patterns:
+      - {re: "(买入|卖出|加仓|减仓)(点|点位|位|时机|价格)|买点|卖点", w: 2.0}
+      - {re: "止盈|止损|现在能(买|卖)吗|该不该(买|卖)|能不能(买|卖)|现在(买|卖)合适吗", w: 2.0}
+      - {re: "(entry|exit|buy|sell) (point|zone|timing)|should (i )?(buy|sell) now|stop loss|take profit", w: 2.0}
+  TRADE-02:
+    name: 仓位与风控建议
+    patterns:
+      - {re: "仓位(建议|怎么|如何|多少|控制)|几成仓|满仓|空仓", w: 2.0}
+      - {re: "补仓|建仓|清仓|风控|风险控制|分散", w: 1.5}
+      - {re: "position (size|sizing)|how much to (invest|allocate)|risk management", w: 2.0}
+  TRADE-03:
+    name: 投资适当性建议
+    patterns:
+      - {re: "适合(新手|小白|老年人|学生|稳健|激进)?(投资|买|入)?|风险(等级|承受|偏好|测评)", w: 1.5}
+      - {re: "适当性|合格投资者|准入门槛|开户条件", w: 1.5}
+      - {re: "suitable for beginners|risk tolerance|accredited investor", w: 1.5}
+  TRADE-04:
+    name: 账户诊断与配置
+    patterns:
+      - {re: "我的(持仓|账户|收益|盈亏|资产|组合)|持仓(分析|诊断|建议)", w: 2.0}
+      - {re: "账户(诊断|分析|优化|亏损)|资产配置(建议|方案)", w: 2.0}
+      - {re: "my (portfolio|holdings|account)|portfolio (review|diagnosis|allocation)", w: 2.0}
+  SERVICE-01:
+    name: 投教科普与技巧
+    patterns:
+      - {re: "什么是|是什么意思|啥意思|什么意思|指的是|什么叫", w: 2.0}
+      - {re: "如何理解|怎么理解|入门|新手|小白|教程|科普|指南|攻略|教学|实战", w: 1.5}
+      - {re: "怎么(玩|开户|申购|打新|操作|看盘|交易|选股|用)|如何(开户|打新|操作)", w: 1.5}
+      - {re: "(优缺点|利弊|风险提示)|什么是.{2,12}(规则|玩法|逻辑)", w: 1.5}
+      - {re: "what is|how does .* work|beginner|guide|tutorial|explained|difference between", w: 2.0}
+    not_patterns:
+      - "推荐|哪些|名单"
+  SERVICE-02:
+    name: 平台客服问答
+    patterns:
+      - {re: "同花顺|东方财富|通达信|大智慧|涨乐|app|APP|客户端|软件", w: 1.5}
+      - {re: "(怎么|如何)(设置|绑定|登录|注册|开通|取消)|条件单|网格单|开户流程|收费吗|免费吗", w: 2.0}
+      - {re: "how to (use|set up|change|cancel|reset)", w: 1.5}
+  SERVICE-03:
+    name: 合规与免责查询
+    patterns:
+      - {re: "合规|免责(声明)?|适当性(管理|要求)|监管(要求|规定|规则)", w: 2.0}
+      - {re: "compliance|disclaimer|regulation|sec rule|finra", w: 2.0}
+  SYSTEM-01:
+    name: 多模态问答
+    patterns:
+      - {re: "(这张|这个|以下|上面的)(图|图片|照片|截图|文档|文件|pdf|PDF)", w: 2.0}
+      - {re: "看图|识图|图片里|图里的", w: 2.0}
+      - {re: "this (image|picture|chart|document|pdf)|in the (image|chart)", w: 2.0}
+  SYSTEM-02:
+    name: 内容生成
+    patterns:
+      - {re: "帮我(画|写|做|生成|整理成)|生成(一|一份|一个|张)|写(一篇|一份|一个)", w: 2.0}
+      - {re: "可视化|做个图|画个图|表格(形式)?呈现", w: 1.5}
+      - {re: "generate|create (a|an) (chart|report|table)|visualize|write (me )?a", w: 2.0}
+  SYSTEM-03:
+    name: 任务与跟踪
+    patterns:
+      - {re: "定时(提醒|推送|监控)|每天(早上|下午)?(提醒|推送)|订阅|关注提醒", w: 2.0}
+      - {re: "监控.{0,8}(变化|异动|涨跌)|跌(到|破).{0,6}(元|点)提醒|涨(到|破).{0,6}(元|点)提醒", w: 2.0}
+      - {re: "alert me|notify me|track .* (price|change)|set an alert", w: 2.0}
+  SYSTEM-04:
+    name: 交互指令
+    patterns:
+      - {re: "翻译(成|一下|成英文|成中文)|转人工|人工客服|切换(到)?(角色|模式)", w: 2.0}
+      - {re: "translate|switch to (chinese|english|agent|human)", w: 2.0}
+  SYSTEM-05:
+    name: 通用闲聊与兜底
+    patterns:
+      - {re: "^(你好|您好|嗨|哈喽|hello|hi|hey)[!！。 .]?$", w: 3.0}
+      - {re: "^(谢谢|感谢|thanks|thank you)[!！。 .]?$", w: 3.0}

@@ -1,0 +1,7 @@
+# 服务器/集群训练环境额外依赖（本机无需安装）
+# NER 训练（ner/train.py）与 0.6B 判别式三头训练（见 docs/03）所需
+torch>=2.0
+transformers>=4.40
+onnxruntime>=1.17
+datasets>=2.19
+accelerate>=0.30

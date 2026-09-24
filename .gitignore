@@ -1,0 +1,20 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+
+# --- 运行时数据（由 tools/build_*.py 幂等生成，见 README「数据构建」） ---
+data/
+logs/
+
+# --- 敏感配置：真实密钥不入库，用 configs/llm.example.yaml 作模板 ---
+configs/llm.yaml
+.env
+
+# --- 本地工作目录 / 系统文件 ---
+.workbuddy/
+考核要求/
+.DS_Store
+Thumbs.db

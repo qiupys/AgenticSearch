@@ -1,0 +1,80 @@
+version: "1.0"
+date: "2026-09-21"
+source: D:/UserIntension/analysis/intent_content_linkage.json
+description: 意图识别输出 → 召回条件 的翻译规则表（情绪/行业/内容类型/时间窗/角色权重）
+
+# 行业过滤由 object_type 槽位 + 实体链接驱动：
+#   宏观   → level1=财经, finance_sub=宏观经济
+#   行业   → 实体链接到 15 类或细分（词典+entity linking）
+#   个股/板块指数 → level1=证券, secondary=公司所属行业
+#   基金ETF → level1=财经, finance_sub=基金
+#   无特定对象 → 不过滤
+industry_by_object_type:
+  宏观:       {level1: [财经], finance_sub: [宏观经济]}
+  行业:       {level1: entity_link, note: 行业名→行业分类映射表}
+  个股:       {level1: [证券], secondary: 公司所属行业}
+  板块指数:   {level1: [证券], secondary: 板块所属行业}
+  基金ETF:    {level1: [财经], finance_sub: [基金]}
+  无特定对象: {level1: null, note: 不过滤}
+
+# 情绪历史字段 0负/1正/2中 为兼容债务：读侧一律走 canonical 别名层
+sentiment:
+  canonical: [negative, positive, neutral]
+
+# 内容类型 canonical 统一枚举（渠道侧各自映射）
+content_type_canonical:
+  [video_short, video_long, live, image_text, article, news, qa,
+   tutorial, review, report, audio, gallery, encyclopedia]
+
+# 意图组 → 召回条件矩阵
+intent_to_recall:
+  INFO-01: {sentiment: any,     content_type_pref: [news, article],              role: 数据补充, weight: 0.3, time_window_days: null}
+  INFO-02: {sentiment: any,     content_type_pref: [news, article],              role: 数据补充, weight: 0.3, time_window_days: null}
+  INFO-03: {sentiment: any,     content_type_pref: [news, article],              role: 数据补充, weight: 0.3, time_window_days: null}
+  INFO-04: {sentiment: any,     content_type_pref: [news, article, report],      role: 数据补充, weight: 0.3, time_window_days: null, latest_window_days: 90}
+  INFO-05: {sentiment: any,     content_type_pref: [news, article],              role: 数据补充, weight: 0.3, time_window_days: null}
+  INFO-06: {sentiment: any,     content_type_pref: [news, article],              role: 数据补充, weight: 0.3, time_window_days: null}
+  INFO-07: {sentiment: any,     content_type_pref: [news, article, video_short], role: 主召回,   weight: 1.0, time_window_days: 7, latest_window_days: 30}
+  INFO-08: {sentiment: any,     content_type_pref: [report, article, image_text],role: 主召回,   weight: 1.0, time_window_days: 30}
+  INFO-09: {sentiment: any,     content_type_pref: [video_short, video_long, audio, gallery, encyclopedia], role: 主召回模态优先, weight: 1.0, time_window_days: null}
+  ANALYZE-01: {sentiment: neutral优先, content_type_pref: [article, review, video_long], role: 主召回深度, weight: 0.9, time_window_days: 30}
+  ANALYZE-02: {sentiment: neutral优先, content_type_pref: [article, review, video_long], role: 主召回深度, weight: 0.9, time_window_days: 30}
+  ANALYZE-03: {sentiment: neutral优先, content_type_pref: [article, review, video_long], role: 主召回深度, weight: 0.9, time_window_days: 30}
+  ANALYZE-04: {sentiment: neutral优先, content_type_pref: [article, review, video_long], role: 主召回深度, weight: 0.9, time_window_days: 30}
+  ANALYZE-05: {sentiment: neutral优先, content_type_pref: [article, review, video_long], role: 主召回深度, weight: 0.9, time_window_days: 30}
+  ANALYZE-06: {sentiment: neutral优先, content_type_pref: [article, news],      role: 主召回深度, weight: 0.9, time_window_days: 7}
+  ANALYZE-07: {sentiment: neutral优先, content_type_pref: [article, report],    role: 主召回深度, weight: 0.9, time_window_days: 30}
+  PREDICT-01: {sentiment: mixed, content_type_pref: [article, news],            role: 召回加多样性, weight: 0.8, time_window_days: 30}
+  PREDICT-02: {sentiment: mixed, content_type_pref: [article, news],            role: 召回加多样性, weight: 0.8, time_window_days: 7}
+  PREDICT-03: {sentiment: mixed, content_type_pref: [article, news],            role: 召回加多样性, weight: 0.8, time_window_days: 30}
+  PREDICT-04: {sentiment: mixed, content_type_pref: [article, news],            role: 召回加多样性, weight: 0.8, time_window_days: 30}
+  PREDICT-05: {sentiment: mixed, content_type_pref: [article, news],            role: 召回加多样性, weight: 0.8, time_window_days: 30}
+  PREDICT-06: {sentiment: mixed, content_type_pref: [article, news],            role: 召回加多样性, weight: 0.8, time_window_days: 7}
+  SELECT-01:  {sentiment: boost_positive, content_type_pref: [review, report, news], role: 主召回, weight: 0.9, time_window_days: 30}
+  SELECT-02:  {sentiment: boost_positive, content_type_pref: [review, report, news], role: 主召回, weight: 0.9, time_window_days: 30}
+  SELECT-03:  {sentiment: boost_positive, content_type_pref: [review, report, news], role: 主召回, weight: 0.9, time_window_days: 30}
+  SELECT-04:  {sentiment: boost_positive, content_type_pref: [review, report, news], role: 主召回, weight: 0.9, time_window_days: 30}
+  QUANT-01:   {sentiment: any,   content_type_pref: [report, tutorial],          role: 辅助, weight: 0.4, time_window_days: null}
+  QUANT-02:   {sentiment: any,   content_type_pref: [report, tutorial],          role: 辅助, weight: 0.4, time_window_days: null}
+  QUANT-03:   {sentiment: any,   content_type_pref: [report, tutorial],          role: 辅助, weight: 0.4, time_window_days: null}
+  QUANT-04:   {sentiment: any,   content_type_pref: [report, tutorial],          role: 辅助, weight: 0.4, time_window_days: null}
+  TRADE-01:   {sentiment: mixed, content_type_pref: [article, qa, live],         role: 辅助, weight: 0.5, time_window_days: null}
+  TRADE-02:   {sentiment: mixed, content_type_pref: [article, qa, live],         role: 辅助, weight: 0.5, time_window_days: null}
+  TRADE-03:   {sentiment: mixed, content_type_pref: [article, qa, live],         role: 辅助, weight: 0.5, time_window_days: null}
+  TRADE-04:   {sentiment: mixed, content_type_pref: [article, qa, live],         role: 辅助, weight: 0.5, time_window_days: null}
+  SERVICE-01: {sentiment: any,   content_type_pref: [tutorial, qa, encyclopedia, video_long], role: 主召回知识, weight: 1.0, time_window_days: null}
+  SERVICE-02: {sentiment: any,   content_type_pref: [tutorial, qa, encyclopedia],role: 主召回知识, weight: 1.0, time_window_days: null}
+  SERVICE-03: {sentiment: any,   content_type_pref: [encyclopedia, article],     role: 主召回知识, weight: 1.0, time_window_days: null}
+  SYSTEM-01:  {sentiment: "-",   content_type_pref: [],                          role: 不走内容召回, weight: 0.0, time_window_days: null}
+  SYSTEM-02:  {sentiment: "-",   content_type_pref: [],                          role: 不走内容召回, weight: 0.0, time_window_days: null}
+  SYSTEM-03:  {sentiment: "-",   content_type_pref: [],                          role: 不走内容召回, weight: 0.0, time_window_days: null}
+  SYSTEM-04:  {sentiment: "-",   content_type_pref: [],                          role: 不走内容召回, weight: 0.0, time_window_days: null}
+  SYSTEM-05:  {sentiment: "-",   content_type_pref: [news, article],             role: 兜底通用召回, weight: 0.3, time_window_days: 7}
+
+# time_anchor 槽位 → 召回时间窗默认值（无显式时间词时）
+time_anchor_defaults:
+  最新:       {sort: freshness_desc, window_days: 7}
+  历史时点:   {sort: relevance_desc, window_days: null}
+  区间:       {sort: relevance_desc, window_days: null}
+  未来:       {sort: relevance_desc, window_days: null}
+  无:         {sort: relevance_desc, window_days: null}

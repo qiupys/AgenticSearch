@@ -1,0 +1,51 @@
+version: "1.0"
+date: "2026-09-22"
+
+# 级联推理配置（v2.1 三级级联）
+cascade:
+  tier0_rule:
+    enabled: true
+    min_score: 1.0          # 低于该分不出规则结果
+    min_confidence: 0.70    # 规则置信度低于该值降级到 Tier1
+  tier1_model:
+    enabled: true
+    model_path: data/models/lightweight_intent.joblib
+    qwen_onnx_path: null    # 0.6B 判别头 ONNX 导出权重就位后填此路径，优先于轻量模型
+    max_p_threshold: 0.75   # 温度缩放校准后的接受门限（0.6B 判别头）
+    lightweight_max_p: 0.45 # 轻量替代模型（未校准 SGD 概率）独立门限
+  tier2_escalate:
+    enabled: true
+    fallback_intent: SYSTEM-05
+    note: 生产为三选一（大模型API异步补算回填缓存 / 兜底意图+推荐追问 / 高峰期直接兜底）
+
+# 复合意图
+composite:
+  enabled: true
+  cross_domain_ratio: 0.8   # 次高类（跨域）得分 >= best*ratio 判复合
+  max_intents: 3
+
+# NER 配置
+ner:
+  model_weights_path: null  # data/models/ner_bilstm_crf.pt 就位后自动启用模型推理
+  rule_fallback: true       # 无权重时用规则兜底
+  entity_types: [STOCK, STOCK_CODE, COMPANY, INDEX, FUND, INDUSTRY, MACRO, ORG, PRODUCT, TIME, METRIC]
+
+# 服务配置
+server:
+  host: "0.0.0.0"
+  port: 8100
+  cache_size: 10000
+  request_timeout_ms: 200
+
+# 内容库配置
+content:
+  on_demand_crawl: true      # 检索失败/内容不足时实时爬取兜底并入库
+  proxy: "http://127.0.0.1:10808"   # 爬虫一律走代理
+  max_results: 8             # 兜底爬取每 query 条数
+  min_token_coverage: 0.3    # query 分词在语料词表覆盖率低于该值视为"无有效内容"，触发兜底
+
+# 评测口径（对齐 QP大模型需求文档 业务目标）
+eval_targets:
+  stats_level_acc: 0.85     # 统计层面：意图分类准确率 85%
+  rank_level_acc: 0.95      # 排序层面：意图分类准确率 95%
+  entity_time_acc: 0.99     # 标的、时间识别准确率 99%

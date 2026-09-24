@@ -1,0 +1,1174 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QP 控制台</title>
+<style>
+  :root {
+    --bg: #f4f6fa; --card: #ffffff; --text: #16181d; --sub: #7a808d;
+    --line: #e2e6ee; --accent: #2f6bff; --accent-deep: #1f4fd6; --good: #18b566; --warn: #ff8800;
+    --bad: #ff3b30; --chip: #f0f2f7; --mono: "SF Mono", "Cascadia Code", Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 14px/1.55 -apple-system, "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+         -webkit-font-smoothing: antialiased; }
+  header { background: rgba(255,255,255,.86); backdrop-filter: blur(14px);
+           border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 10;
+           box-shadow: 0 1px 0 rgba(47,107,255,.06); }
+  .hd { max-width: 980px; margin: 0 auto; padding: 12px 20px;
+        display: flex; align-items: center; gap: 20px; }
+  .brand { display: flex; align-items: center; gap: 9px; text-decoration: none; }
+  .brand .mark { width: 26px; height: 26px; border-radius: 7px; flex: none;
+                 background: linear-gradient(135deg, var(--accent) 0%, var(--accent-deep) 100%);
+                 display: flex; align-items: center; justify-content: center;
+                 box-shadow: 0 2px 8px rgba(47,107,255,.35); }
+  .brand h1 { font-size: 16px; font-weight: 700; margin: 0; letter-spacing: -.2px; }
+  .brand h1 .mono { font-family: var(--mono); font-weight: 600; color: var(--accent); font-size: 15px; }
+  .libchip { font-family: var(--mono); font-size: 11.5px; color: var(--sub);
+             background: var(--chip); border: 1px solid var(--line); border-radius: 7px;
+             padding: 3px 9px; white-space: nowrap; }
+  .libchip b { color: var(--accent); font-weight: 700; }
+  nav { display: flex; gap: 4px; }
+  nav button { background: none; border: 1px solid transparent; color: var(--sub); font-size: 13.5px;
+               padding: 5px 14px; border-radius: 9px; cursor: pointer; transition: all .15s; }
+  nav button:hover { color: var(--text); }
+  nav button.on { background: var(--accent); color: #fff; font-weight: 600;
+                  box-shadow: 0 2px 8px rgba(47,107,255,.28); }
+  .subnav { display: flex; gap: 4px; margin-bottom: 14px; }
+  .subnav button { background: none; border: 1px solid var(--line); color: var(--sub);
+                   font-size: 13px; padding: 5px 14px; border-radius: 980px; cursor: pointer; }
+  .subnav button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  main { max-width: 980px; margin: 0 auto; padding: 20px; }
+  section.tabpage.hidden { display: none; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+          padding: 18px 20px; margin-bottom: 16px; }
+  input[type=text], textarea { width: 100%; border: 1px solid var(--line); border-radius: 10px;
+          padding: 9px 12px; font: inherit; outline: none; background: #fff; }
+  textarea { min-height: 130px; resize: vertical; }
+  input:focus, textarea:focus { border-color: var(--accent); }
+  .row { display: flex; gap: 10px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
+  .searchline { display: flex; gap: 10px; }
+  .searchline input { flex: 1; }
+  .searchline .cta { flex: none; padding: 8px 26px; }
+  .chip.hot { cursor: pointer; transition: background .15s, color .15s; }
+  .chip.hot:hover { background: var(--accent); color: #fff; }
+  .chip.skel { background: linear-gradient(90deg, var(--chip) 25%, #eceef2 45%, var(--chip) 65%);
+               background-size: 200% 100%; animation: skel 1.2s infinite; color: transparent; }
+  @keyframes skel { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+  .tag.date { color: var(--accent); background: rgba(0,113,227,.08); }
+  .chip.sw { cursor: pointer; }
+  .chip.sw.on { background: var(--good); color: #fff; }
+  .chip.sw:not(.on) { opacity: .65; }
+  button.cta { background: linear-gradient(180deg, #4d7dff 0%, var(--accent) 55%, var(--accent-deep) 100%);
+               color: #fff; border: none; border-radius: 10px;
+               padding: 8px 22px; font-size: 14px; font-weight: 600; cursor: pointer;
+               box-shadow: 0 2px 10px rgba(47,107,255,.32), inset 0 1px 0 rgba(255,255,255,.25);
+               transition: transform .12s, box-shadow .12s, filter .12s; }
+  button.cta:hover { transform: translateY(-1px); filter: brightness(1.06);
+                     box-shadow: 0 4px 14px rgba(47,107,255,.4), inset 0 1px 0 rgba(255,255,255,.25); }
+  button.cta:active { transform: translateY(0); }
+  button.cta:disabled { opacity: .45; cursor: default; transform: none; }
+  button.ghost { background: #fff; color: var(--text); border: 1px solid var(--line);
+                 border-radius: 10px; padding: 7px 16px; font-size: 13.5px; cursor: pointer;
+                 transition: border-color .15s, color .15s, background .15s; }
+  button.ghost:hover { border-color: var(--accent); color: var(--accent); }
+  button.ghost.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .hint { color: var(--sub); font-size: 12px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 2px; }
+  .chip { background: var(--chip); border-radius: 7px; padding: 3px 10px; font-size: 12px; }
+  .chip b { font-weight: 600; }
+  .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+             gap: 10px; margin: 12px 0; }
+  .metric { background: var(--chip); border-radius: 10px; padding: 10px 12px; }
+  .metric .v { font-size: 20px; font-weight: 700; letter-spacing: -.5px; }
+  .metric .k { font-size: 11px; color: var(--sub); }
+  /* 结果卡片：分数条 + 最相关片段并排，底部正文预览 */
+  .rcard { background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+           padding: 12px 14px; margin-bottom: 10px; }
+  .rcard:hover { border-color: #d5d5da; }
+  .rhead { display: flex; align-items: baseline; gap: 8px; }
+  .rhead a { color: var(--text); font-weight: 600; text-decoration: none; }
+  .rhead a:hover { color: var(--accent); }
+  .rhead .rank { color: var(--sub); font-size: 12px; flex: none; }
+  .rhead .tag { flex: none; font-size: 10.5px; color: var(--sub); background: var(--chip);
+                border-radius: 5px; padding: 2px 7px; }
+  .rbody { display: flex; gap: 14px; margin-top: 8px; align-items: stretch; }
+  .rscore { flex: none; width: 150px; display: flex; gap: 10px; align-items: center;
+            background: var(--chip); border-radius: 10px; padding: 8px 11px; }
+  .rscore .rel { text-align: center; flex: none; }
+  .rscore .rel .num { font-size: 21px; font-weight: 700; letter-spacing: -.5px; color: var(--accent); }
+  .rscore .rel .lbl { font-size: 10px; color: var(--sub); }
+  .rscore .mini { flex: 1; display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+  .mb { display: flex; align-items: center; gap: 5px; }
+  .mb .name { font-size: 10px; color: var(--sub); width: 30px; flex: none; }
+  .mb .bar { height: 3.5px; border-radius: 2px; background: var(--line); flex: 1; position: relative; }
+  .mb .bar i { position: absolute; inset: 0 auto 0 0; border-radius: 2px; }
+  .mb.bm .bar i { background: var(--accent); }
+  .mb.vc .bar i { background: var(--good); }
+  .mb.ent .bar i { background: #af52de; }
+  .rchunk { flex: 1; min-width: 0; font-size: 12.5px; line-height: 1.5; color: var(--text);
+            border-left: 3px solid var(--accent); padding: 1px 0 1px 10px; }
+  .rchunk .cl { display: block; font-size: 10.5px; color: var(--sub); margin-bottom: 2px; }
+  .rfoot { margin-top: 9px; padding-top: 8px; border-top: 1px dashed var(--line);
+           font-size: 12px; color: var(--sub); line-height: 1.5; }
+  /* QP 解读条：标签 + 值，替代抽象 chips */
+  .qpread { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 8px; margin-top: 12px; }
+  .qpi { background: var(--chip); border-radius: 10px; padding: 8px 11px; }
+  .qpi .k { font-size: 10.5px; color: var(--sub); margin-bottom: 1px; }
+  .qpi .v { font-size: 12.5px; font-weight: 600; }
+  .qpi .v .sub { font-weight: 400; color: var(--sub); font-size: 11px; }
+  /* 开发者模式：过滤漏斗 */
+  .devonly { display: none !important; }
+  body.dev .devonly { display: revert !important; }
+  /* ============ 开发者侧栏 ============ */
+  #devSide { position: fixed; top: 57px; right: 0; bottom: 0; width: 320px;
+             background: linear-gradient(180deg, #fafafd 0%, #f4f5f9 100%);
+             border-left: 1px solid var(--line); padding: 16px 18px; overflow: auto;
+             display: none; z-index: 20; box-shadow: -10px 0 34px rgba(20,30,60,.07); }
+  body.dev #devSide { display: block; }
+  body.dev main, body.dev .hd { margin-right: 320px; }
+  @media (max-width: 1240px) { body.dev main, body.dev .hd { margin-right: 0; } }
+  .dhead { display: flex; align-items: center; gap: 9px; margin-bottom: 4px; }
+  .dhead.sys .dot { background: var(--accent); box-shadow: 0 0 0 3px rgba(47,107,255,.16); }
+  .dhead .dot { width: 8px; height: 8px; border-radius: 50%;
+                         background: var(--good); box-shadow: 0 0 0 3px rgba(52,199,89,.18); }
+  .dhead .t { font-size: 14px; font-weight: 700; letter-spacing: -.2px; }
+  .dhead .x { margin-left: auto; }
+  .dsub { font-size: 11px; color: var(--sub); margin: 0 0 14px; }
+  #devSide .dsec { margin-bottom: 18px; }
+  #devSide .dlabel { font-size: 10.5px; font-weight: 700; letter-spacing: .8px;
+                     color: var(--sub); text-transform: uppercase; margin-bottom: 8px;
+                     display: flex; align-items: center; gap: 6px; }
+  #devSide .dlabel::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+  #devSide .devrow { margin: 0; background: #fff; border: 1px solid var(--line);
+                     padding: 6px 10px; }
+  #devSide .devrow input[type=range] { accent-color: var(--accent); flex: 1; min-width: 0; }
+  #devSide .devrow .val { flex: none; font-variant-numeric: tabular-nums; }
+  #devSide .funnel { margin: 0; gap: 5px; position: relative; padding-left: 4px; }
+  #devSide .funnel::before { content: ""; position: absolute; left: 12px; top: 12px;
+                             bottom: 12px; width: 2px; background: var(--line); }
+  /* 漏斗步骤：圆点为第一个 flex 子元素（::before），不再与文字重合 */
+  .ftl { display: flex; align-items: center; gap: 8px; padding: 4px 0;
+         font-size: 12px; position: relative; z-index: 1; }
+  .ftl::before { content: ""; width: 9px; height: 9px; border-radius: 50%; flex: none;
+                 background: var(--card); border: 2px solid var(--sub); }
+  .ftl .fl { color: var(--text); }
+  .ftl .fn { margin-left: auto; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .ftl.fgroup { color: var(--accent); font-weight: 700; font-size: 11px;
+                background: var(--card); margin: 2px -4px; padding: 4px 8px; }
+  .ftl.fgroup::before { visibility: hidden; margin-right: -17px; }
+  .ftl.fgroup .fn { color: var(--sub); font-weight: 400; font-size: 10.5px; }
+  .ftl.top { font-weight: 600; }
+  .ftl.info::before { border-color: var(--accent); }
+  .ftl.info .fn { color: var(--accent); }
+  .ftl.minus::before { border-color: #e08a2e; }
+  .ftl.minus .fl, .ftl.minus .fn { color: #b25000; }
+  .ftl.keep::before { border-color: #34c759; background: #eafaf0; }
+  .ftl.keep .fl, .ftl.keep .fn { color: #1d7a3a; }
+  .fstep { background: #fff; border: 1px solid var(--line); border-radius: 8px;
+           padding: 4px 10px; font-size: 12px; color: var(--text);
+           font-variant-numeric: tabular-nums; }
+  .fstep .n { font-weight: 700; font-family: "SF Mono", Consolas, monospace; }
+  .fstep.minus { color: #b25000; border-color: #f3d9bd; background: #fff9f2; }
+  .fstep.keep { color: #1d7a3a; border-color: #c9e7d2; background: #f4fcf6; }
+  .farrow { color: var(--sub); font-size: 11px; }
+  /* ============ 响应式适配 ============ */
+  @media (max-width: 720px) {
+    .hd { flex-wrap: wrap; gap: 10px; }
+    .hd nav { order: 3; width: 100%; display: flex; gap: 8px; }
+    .hd .hint { display: none; }
+    main { padding: 12px; }
+    .qpread { grid-template-columns: 1fr 1fr !important; }
+    .rbody { flex-direction: column !important; }
+    .rscore { width: 100% !important; flex-direction: row !important;
+              align-items: center !important; }
+    .rscore .mini { flex: 1; }
+    .metrics { flex-wrap: wrap; }
+    .sysflow .fstep { padding: 4px 8px; font-size: 11px; }
+  }
+  @media (max-width: 560px) {
+    .qpread { grid-template-columns: 1fr !important; }
+    .sysgrid { grid-template-columns: 1fr !important; }
+  }
+  /* ============ iOS 开关组 ============ */
+  .swgrp { background: #fff; border: 1px solid var(--line); border-radius: 12px;
+           overflow: hidden; margin-bottom: 8px; }
+  .swgrp .ghead { padding: 7px 12px 5px; font-size: 11px; font-weight: 700;
+                  color: var(--sub); display: flex; align-items: center; gap: 6px; }
+  .swgrp .ghead .gd { width: 6px; height: 6px; border-radius: 2px; flex: none; }
+  .swrow { display: flex; align-items: center; gap: 10px; padding: 8px 12px;
+           border-top: 1px solid var(--line); cursor: pointer; transition: background .12s; }
+  .swrow:hover { background: var(--chip); }
+  .swrow .sl { flex: 1; min-width: 0; }
+  .swrow .sl .n { font-size: 12.5px; font-weight: 600; }
+  .swrow .sl .d { font-size: 10.5px; color: var(--sub); margin-top: 1px; }
+  .swt { flex: none; width: 38px; height: 22px; border-radius: 11px; background: #d8d8de;
+         position: relative; transition: background .18s; }
+  .swt::after { content: ""; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px;
+                border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.22);
+                transition: left .18s; }
+  .swt.on { background: var(--good); }
+  .swt.on::after { left: 18px; }
+  /* ============ 系统说明卡片升级 ============ */
+  .sysflow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 16px; }
+  .sysflow .fstep { background: var(--accent); color: #fff; font-weight: 600; border-radius: 8px;
+                    padding: 5px 12px; font-size: 12px; border: none; }
+  .sysgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .scard { border: 1px solid var(--line); border-radius: 14px; padding: 13px 15px;
+           background: #fff; transition: box-shadow .18s, transform .18s; }
+  .scard:hover { box-shadow: 0 6px 22px rgba(20,30,60,.09); transform: translateY(-1px); }
+  .scard h4 { margin: 0 0 8px; font-size: 13px; display: flex; align-items: center; gap: 7px; cursor: pointer; user-select: none; }
+  .scard h4 .chev { margin-left: auto; color: var(--sub); font-size: 11px; transition: transform .18s; }
+  .scard.open h4 .chev { transform: rotate(90deg); }
+  .scard .sdetail { display: none; border-top: 1px dashed var(--line); margin-top: 8px; padding-top: 8px; }
+  .scard.open .sdetail { display: block; }
+  .scard .sdetail pre { background: var(--chip); border-radius: 8px; padding: 10px 12px; font-size: 11px;
+                        line-height: 1.55; white-space: pre-wrap; word-break: break-all; color: var(--text); margin: 6px 0; }
+  .scard .sdetail .dt { font-size: 11px; color: var(--accent); font-weight: 600; margin: 8px 0 2px; }
+  .kv { background: var(--chip); border-radius: 8px; padding: 6px 10px; margin: 6px 0; }
+  .kv .r { display: flex; gap: 10px; padding: 2px 0; font-size: 11.5px; }
+  .kv .r .k { color: var(--sub); flex: none; width: 150px; }
+  .kv .r .v { font-variant-numeric: tabular-nums; font-weight: 600; }
+  .scard h4::before { content: ""; width: 8px; height: 8px; border-radius: 2.5px;
+                      background: var(--c, var(--accent)); flex: none;
+                      box-shadow: 0 0 0 3px color-mix(in srgb, var(--c, var(--accent)) 16%, transparent); }
+  .sysgrid h4 { margin: 0 0 6px; font-size: 13px; }
+  .sysgrid p, .scard p, .sysgrid li, .scard li { font-size: 12px; color: var(--sub); margin: 3px 0; }
+  .sysgrid ul, .scard ul { margin: 4px 0; padding-left: 16px; }
+  .sysgrid .chip, .scard .chip { display: inline-block; margin: 2px 2px; }
+  /* L2 意图完整列表 */
+  .l2grp { margin-bottom: 10px; }
+  .l2grp .lh { font-size: 12px; font-weight: 700; display: flex; align-items: center;
+               gap: 6px; margin: 8px 0 4px; }
+  .l2grp .lh .ld { width: 7px; height: 7px; border-radius: 2px; flex: none; }
+  .l2grp .lh .cnt { color: var(--sub); font-weight: 400; font-size: 11px; }
+  .l2item { display: flex; gap: 8px; padding: 3px 0 3px 13px; font-size: 11.5px;
+            border-left: 2px solid var(--line); margin-left: 3px; }
+  .l2item .iid { font-family: "SF Mono", Consolas, monospace; color: var(--accent);
+                 flex: none; width: 74px; }
+  .l2item .nm { font-weight: 600; flex: none; }
+  .l2item .nt { color: var(--sub); }
+  /* 评测页统一头 */
+  .evhead { display: flex; align-items: center; gap: 9px; margin-bottom: 10px; }
+  .evhead .ed { width: 8px; height: 8px; border-radius: 2.5px; background: var(--c, var(--accent));
+                box-shadow: 0 0 0 3px color-mix(in srgb, var(--c, var(--accent)) 16%, transparent);
+                flex: none; }
+  .evhead b { font-size: 13.5px; letter-spacing: -.2px; }
+  .evhead .hint { flex: 1; text-align: right; }
+  .evinput { margin: 10px 0; }
+  .devrow { display: flex; align-items: center; gap: 10px; margin-top: 10px; padding: 8px 12px;
+            background: var(--chip); border-radius: 10px; }
+  .devrow input[type=range] { flex: 1; accent-color: var(--accent); }
+  .devrow .val { font-size: 13px; font-weight: 600; width: 42px; text-align: right; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); }
+  th { color: var(--sub); font-weight: 500; font-size: 12px; }
+  td.ok { color: var(--good); font-weight: 600; }
+  td.no { color: var(--bad); font-weight: 600; }
+  tr.retrow:hover td { background: var(--chip); }
+  .retd { font-size: 12px; }
+  .retdrow { display: flex; gap: 8px; padding: 4px 0; border-bottom: 1px dashed var(--line); }
+  .retdrow:last-child { border-bottom: none; }
+  .retdrow .rs { width: 46px; text-align: right; font-weight: 600; color: var(--accent); flex: none;
+                 font-variant-numeric: tabular-nums; }
+  .spin { display: inline-block; width: 15px; height: 15px; border: 2px solid var(--line);
+          border-top-color: var(--accent); border-radius: 50%; animation: r .8s linear infinite; }
+  @keyframes r { to { transform: rotate(360deg); } }
+  .hidden { display: none !important; }
+  .err { color: var(--bad); }
+  /* QP JSON 右侧抽屉 */
+  #drawer { position: fixed; top: 0; right: -560px; width: 540px; max-width: 92vw; height: 100vh;
+            background: var(--card); border-left: 1px solid var(--line); z-index: 50;
+            transition: right .25s ease; display: flex; flex-direction: column;
+            box-shadow: -8px 0 30px rgba(0,0,0,.08); }
+  #drawer.open { right: 0; }
+  #drawer .dh { display: flex; justify-content: space-between; align-items: center;
+                padding: 14px 18px; border-bottom: 1px solid var(--line); font-weight: 600; }
+  #drawer pre { margin: 0; padding: 14px 18px; overflow: auto; flex: 1;
+                font: 12px/1.5 "SF Mono", Consolas, monospace; background: var(--chip); }
+  #mask { position: fixed; inset: 0; background: rgba(0,0,0,.18); z-index: 40; }
+</style>
+</head>
+<body>
+<header><div class="hd">
+  <span class="brand">
+    <span class="mark"><svg width="15" height="15" viewBox="0 0 24 24" fill="none">
+      <path d="M5 6l5.5 6L5 18" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="17.5" cy="12" r="2.6" fill="#fff"/>
+    </svg></span>
+    <h1>Agentic <span class="mono">Search</span></h1>
+  </span>
+  <nav>
+    <button id="nav-search" class="on" data-tab="search">检索</button>
+    <button id="nav-eval" data-tab="eval">评测</button>
+    <button id="nav-about" data-tab="about">说明</button>
+  </nav>
+  <span style="flex:1"></span>
+  <span class="libchip" id="libChip" title="内容库文档数（含兜底补库）">lib <b id="libN">—</b> docs</span>
+  <button class="ghost" id="devBtn" onclick="toggleDev()" style="padding:5px 14px">开发者模式</button>
+</div></header>
+<!-- 开发者模式侧栏：漏斗 / 阈值 / 链路开关 -->
+<aside id="devSide">
+  <div class="dhead"><span class="dot"></span><span class="t">开发者模式</span>
+    <button class="ghost x" onclick="toggleDev()" style="padding:3px 12px;font-size:11px">退出</button></div>
+  <p class="dsub">链路观测与运行时开关 · 开关点击即生效并持久化</p>
+  <div class="dsec">
+    <div class="dlabel">QP JSON</div>
+    <button class="ghost devonly" onclick="toggleDrawer(true)" style="width:100%">查看完整 QP 输出</button>
+  </div>
+  <div class="dsec">
+    <div class="dlabel">召回模块</div>
+    <div style="font-size:11px;color:var(--sub);margin:0 0 6px 2px">BM25 + chunk 级 embedding 多路召回 · RRF 融合 · 链指命中豁免</div>
+    <div class="devrow">
+      <span style="font-size:11px;color:var(--sub);flex:none;width:96px">相关性阈值</span>
+      <input type="range" id="minRecall" min="0" max="0.9" step="0.05" value="0.4"
+             oninput="$('minRecallVal').textContent=(+this.value).toFixed(2)">
+      <span class="val" id="minRecallVal">0.40</span>
+    </div>
+  </div>
+  <div class="dsec">
+    <div class="dlabel">排序模块（Rerank）</div>
+    <div style="font-size:11px;color:var(--sub);margin:0 0 6px 2px">qwen rerank 全候选重排 · 仅保留精排达标结果</div>
+    <div class="devrow">
+      <span style="font-size:11px;color:var(--sub);flex:none;width:96px">相关性阈值</span>
+      <input type="range" id="minScore" min="0" max="0.9" step="0.05" value="0.3"
+             oninput="$('minScoreVal').textContent=(+this.value).toFixed(2)">
+      <span class="val" id="minScoreVal">0.30</span>
+    </div>
+  </div>
+  <div class="dsec">
+    <div class="dlabel">过滤漏斗</div>
+    <div id="funnel" class="funnel devonly"></div>
+  </div>
+  <div class="dsec" id="cfgPanel">
+    <div class="dlabel">链路开关</div>
+    <div id="cfgSwitches"></div>
+  </div>
+</aside>
+
+<main>
+
+<!-- ============ 检索 ============ -->
+<section id="tab-search" class="tabpage">
+  <div class="card">
+    <div class="searchline">
+      <input type="text" id="q" placeholder="输入 query，如：智谱最新公告 / 小米股价趋势"
+             onkeydown="if(event.key==='Enter')doSearch()">
+      <button id="btnSearch" class="cta" onclick="doSearch()">检索</button>
+    </div>
+    <div id="hotChips" class="chips" style="margin-top:10px"></div>
+    <div class="row">
+      <span id="searchSpin" class="hidden"><span class="spin"></span></span>
+      <span id="searchStatus" class="hint"></span>
+    </div>
+    <div id="qpRead" class="qpread"></div>
+  </div>
+
+  <div id="resultsCard" class="card hidden">
+    <div id="fallbackBar"></div>
+    <div id="results"></div>
+  </div>
+</section>
+
+<!-- ============ 评测（意图 / 检索 两个子页） ============ -->
+<section id="tab-eval" class="tabpage hidden">
+  <div class="subnav">
+    <button id="subnav-qp" class="on" data-sub="qpeval">意图评测</button>
+    <button id="subnav-ret" data-sub="reteval">检索评测</button>
+    <button id="subnav-ner" data-sub="nereval">实体评测</button>
+    <button id="subnav-time" data-sub="timeeval">时效评测</button>
+  </div>
+
+  <div id="sub-qpeval">
+    <div class="card">
+      <div class="evhead" style="--c:#5e5ce6"><span class="ed"></span><b>意图评测</b>
+        <span class="hint">输入：每行一条 query，可用 <b>|</b> 追加金标意图（可选） · 输出：准确率 / 置信度 / 延迟 + 逐行明细</span></div>
+      <textarea id="evalInput" class="evinput" placeholder="鼎龙股份 最新公告&#10;鼎龙股份 最新财报 营收 毛利率 | INFO-04&#10;美联储 加息 影响"></textarea>
+      <div class="row">
+        <button id="btnEval" class="cta" onclick="doEval('qp')">运行评测</button>
+        <button class="ghost" onclick="fillExample('qp')">填入示例</button>
+        <span id="evalSpin" class="hidden"><span class="spin"></span></span>
+        <span id="evalMsg" class="hint"></span>
+      </div>
+    </div>
+    <div id="evalOut" class="card hidden">
+      <div class="metrics" id="evalMetrics"></div>
+      <div style="overflow:auto"><table id="evalTable"></table></div>
+    </div>
+  </div>
+
+  <div id="sub-reteval" class="hidden">
+    <div class="card">
+      <div class="evhead" style="--c:#0a84ff"><span class="ed"></span><b>检索评测</b>
+        <span class="hint">输入：每行一条 query（无需金标） · 输出：hit@5 / MRR / nDCG@5 + 点击行展开该条 Top 结果</span></div>
+      <textarea id="retInput" class="evinput" placeholder="智谱最新公告&#10;半导体设备 国产替代 最新进展&#10;瑞幸咖啡 门店扩张 策略 分析"></textarea>
+      <div class="row">
+        <button id="btnRet" class="cta" onclick="doEval('retrieval')">运行评测</button>
+        <button class="ghost" onclick="fillExample('retrieval')">填入示例</button>
+        <span id="retSpin" class="hidden"><span class="spin"></span></span>
+        <span id="retMsg" class="hint"></span>
+      </div>
+    </div>
+    <div id="retOut" class="card hidden">
+      <div class="metrics" id="retMetrics"></div>
+      <div style="overflow:auto"><table id="retTable"></table></div>
+    </div>
+  </div>
+
+  <div id="sub-nereval" class="hidden">
+    <div class="card">
+      <div class="evhead" style="--c:#30b0c7"><span class="ed"></span><b>实体评测</b>
+        <span class="hint">输入：每行一条 query · 输出：实体 / 类型 / 来源 / 链指命中 + 链指率与类型分布（生产同款 NER + 链指）</span></div>
+      <textarea id="nerInput" class="evinput" placeholder="美联储 加息 影响&#10;鼎龙股份 最新公告&#10;白酒板块 资金流向"></textarea>
+      <div class="row">
+        <button id="btnNer" class="cta" onclick="doEval('ner')">运行评测</button>
+        <button class="ghost" onclick="fillExample('ner')">填入示例</button>
+        <span id="nerSpin" class="hidden"><span class="spin"></span></span>
+        <span id="nerMsg" class="hint"></span>
+      </div>
+    </div>
+    <div id="nerOut" class="card hidden">
+      <div class="metrics" id="nerMetrics"></div>
+      <div style="overflow:auto"><table id="nerTable"></table></div>
+    </div>
+  </div>
+
+  <div id="sub-timeeval" class="hidden">
+    <div class="card">
+      <div class="evhead" style="--c:#ff375f"><span class="ed"></span><b>时效评测</b>
+        <span class="hint">输入：每行一条 query · 输出：五桶判定 / 锚点 / 召回窗口 / 通道 + 桶分布（纯规则，可大批量）</span></div>
+      <textarea id="timeInput" class="evinput" placeholder="近一周 白酒资金流向&#10;小米 股价趋势&#10;2026年8月 鼎龙股份 财报&#10;美联储 加息 影响"></textarea>
+      <div class="row">
+        <button id="btnTime" class="cta" onclick="doEval('time')">运行评测</button>
+        <button class="ghost" onclick="fillExample('time')">填入示例</button>
+        <span id="timeSpin" class="hidden"><span class="spin"></span></span>
+        <span id="timeMsg" class="hint"></span>
+      </div>
+    </div>
+    <div id="timeOut" class="card hidden">
+      <div class="metrics" id="timeMetrics"></div>
+      <div style="overflow:auto"><table id="timeTable"></table></div>
+    </div>
+  </div>
+</section>
+<!-- ============ 说明（系统设计 · 内嵌页） ============ -->
+<section id="tab-about" class="tabpage hidden">
+  <div class="card">
+    <div class="evhead" style="--c:#5e5ce6"><span class="ed"></span><b>系统说明</b>
+      <span class="hint">模块设计 · 实时参数 · 与代码同源（每次进入本页自动刷新）</span></div>
+    <div id="sysStats" class="chips" style="margin:4px 0 12px"></div>
+<div id="sysStats" class="chips" style="margin-bottom:14px"></div>
+      <div class="sysflow">
+      <span class="fstep">Query 理解</span><span class="farrow">→</span>
+      <span class="fstep">LLM 意图 + NER 链指</span><span class="farrow">→</span>
+      <span class="fstep">双路召回</span><span class="farrow">→</span>
+      <span class="fstep">结构化过滤</span><span class="farrow">→</span>
+      <span class="fstep">Rerank 精排</span><span class="farrow">→</span>
+      <span class="fstep">兜底自愈</span>
+    </div>
+    <div class="sysgrid">
+      <div class="scard">
+        <h4 style="--c:#5e5ce6">意图体系<span class="chev">▶</span></h4>
+        <p>8 个一级域 × 42 个二级意图，多标签软解码；对外映射 16 统计类。点击展开完整意图清单。</p>
+        <div id="sysDomains"></div>
+        <div class="sdetail">
+          <div class="dt">42 个二级意图（L2，来源 configs/intent_taxonomy.json）</div>
+          <div id="sysL2"></div>
+          <div class="dt">设计细节</div>
+          <ul>
+            <li>二级意图带情感极性（如 INFO-04 利空 vs INFO-05 利好），召回按极性加权</li>
+            <li>输出映射 16 统计类（INFO-07 → 查新闻），供下游统计口径</li>
+          </ul>
+        </div>
+      </div>
+      <div class="scard">
+        <h4 style="--c:#0a84ff">意图级联（LLM 优先）<span class="chev">▶</span></h4>
+        <ul>
+          <li><b>LLM</b> 优先判定（qwen3.8-27b），失败/低置信自动回落</li>
+          <li><b>轻量模型</b> 回落（char n-gram + SGD）</li>
+          <li><b>规则</b> 回落；SYSTEM 域规则短路直出 &lt;1ms</li>
+        </ul>
+        <div class="sdetail">
+          <div class="dt">实际参数（来源 configs/service.yaml）</div>
+          <div class="kv" id="pvCascade">加载中…</div>
+          <div class="dt">设计细节</div>
+          <ul>
+            <li>LLM 置信低于阈值视为拒绝，进入回落；全部失败 → 兜底意图</li>
+            <li>顺序由「LLM 优先级联」开关控制（开发者面板，落盘 llm.yaml）</li>
+            <li>detail 里保留各 tier 判定痕迹（rule/model/llm），QP JSON 可查</li>
+          </ul>
+        </div>
+      </div>
+      <div class="scard" id="nerCard">
+        <h4 style="--c:#30b0c7">NER + 实体链指<span class="chev">▶</span></h4>
+        <ul>
+          <li>规则词表 NER（弱标注可训 BiLSTM-CRF）+ LLM 补识别双路</li>
+          <li>实体类型：公司 / 个股 / 股票代码 / 指数 / 行业板块 / 基金 / 宏观 / 机构 / 产品</li>
+          <li>实体词表 gazetteer：<span id="sysGaz">—</span> 实体，query 与 docs 同表对齐</li>
+        </ul>
+        <div class="sdetail">
+          <div class="dt">实体类型全清单（来源 ner/llm_ner.py）</div>
+          <div id="pvEntTypes" class="chips" style="margin:4px 0">加载中…</div>
+          <div class="dt">LLM NER Prompt（实际下发，来源 ner/llm_ner.py）</div>
+          <pre id="sysNerPrompt">加载中…</pre>
+          <div class="dt">链指与注册</div>
+          <ul>
+            <li>规则词表先出；缺核心实体时 LLM 补识别（qwen3.8-27b）</li>
+            <li>链指：词面 → gazetteer 别名归一（同 eid）；新实体自动注册</li>
+            <li>平台名（腾讯新闻等）不入表防歧义；doc 侧标题挖矿自动学别名</li>
+          </ul>
+        </div>
+      </div>
+      <div class="scard">
+        <h4 style="--c:#34c759">召回（RRF 融合）<span class="chev">▶</span></h4>
+        <ul>
+          <li>BM25（jieba + 自定义词典，词典与链指词表启动时对齐）</li>
+          <li>Chunk 级 embedding（qwen3.7-text-embedding，doc 取 max chunk）</li>
+        </ul>
+        <div class="sdetail">
+          <div class="dt">实际参数</div>
+          <div class="kv" id="pvRecall">加载中…</div>
+          <div class="dt">设计细节</div>
+          <ul>
+            <li>RRF 融合两路排名（BM25 + chunk 级 embedding）；TF-IDF 路 A/B 评估零增益，已删除</li>
+            <li>BM25 的 jieba 词典与 NER 词表共享词源：新实体注册时同步 add_word，避免专有名词被切碎</li>
+          </ul>
+        </div>
+      </div>
+      <div class="scard">
+        <h4 style="--c:#ff9f0a">过滤与排序<span class="chev">▶</span></h4>
+        <ul>
+          <li>核心实体链指硬过滤（腾讯新闻 ≠ 腾讯）→ 信息词噪声剔除 → 同文去重 → 阈值 → 时效窗</li>
+          <li>rerank（qwen3.7-text-rerank）× 频道匹配 × 链指命中 × 新鲜度</li>
+        </ul>
+        <div class="sdetail">
+          <div class="dt">实际参数（来源 scripts/search_content.py）</div>
+          <div class="kv" id="pvFilter">加载中…</div>
+          <div class="dt">设计细节</div>
+          <ul>
+            <li>顺序关键：链指命中的文档豁免噪声过滤（避免「近一周+实体」被泛词规则误杀）</li>
+            <li>日期已知且超窗的 doc 软过滤剔除（剔空则保留+上报兜底）</li>
+          </ul>
+        </div>
+      </div>
+      <div class="scard">
+        <h4 style="--c:#ff375f">时效与渠道（Channel）<span class="chev">▶</span></h4>
+        <ul>
+          <li>query 时效五桶：一天内 / 一周 / 一月 / 一年 / 不限（显式词直判；绝对日期按距今归桶）</li>
+          <li>趋势/走势类 → 一年窗口；资讯类无显式时间 → 默认最新（freshness + 意图窗）</li>
+        </ul>
+        <div class="sdetail">
+          <div class="dt">时效桶 → 召回窗口</div>
+          <div class="kv" id="pvTime">加载中…</div>
+          <div class="dt">「最新」意图窗口（来源 configs/recall_linkage.json）</div>
+          <div class="kv" id="pvLatestWin">加载中…</div>
+          <div class="dt">设计细节</div>
+          <ul>
+            <li>趋势/走势类 query → 一年窗口；显式桶覆盖意图默认窗</li>
+            <li>doc date 三级抽取：标题/摘要 → URL 路径 → 正文 meta/全文最新可信日期（未来日期拒绝）；无日期优雅降级不参与过滤</li>
+          </ul>
+        </div>
+      </div>
+      <div class="scard">
+        <h4 style="--c:#bf5af2">搜索兜底（自愈）<span class="chev">▶</span></h4>
+        <p>覆盖率低 / 缺失实体 / 核心实体零命中 → 多引擎搜索补库，query 按「实体 + 渠道」重构。</p>
+        <div class="sdetail">
+          <div class="dt">引擎轮换链（实际配置）</div>
+          <div id="pvEngines" class="chips" style="margin:4px 0">加载中…</div>
+          <div class="dt">设计细节</div>
+          <ul>
+            <li>入库前近重复合规（同域 0.6 / 跨域 0.85）+ doc 侧实体/日期/行业打标，与批量入库同一条治理管线</li>
+            <li>入库即触发自学习：新实体注册、jieba 加词、别名挖矿</li>
+          </ul>
+        </div>
+      </div>
+      <div class="scard">
+        <h4 style="--c:#8e8e93">可自定义<span class="chev">▶</span></h4>
+        <ul>
+          <li><b>检索页 · 相关性阈值滑杆</b>（所有人可见）</li>
+          <li><b>开发者模式 · 链路开关面板</b>：LLM 意图 / LLM 优先级联 / LLM NER / EMB 召回 / Rerank，点击即切并持久化</li>
+        </ul>
+        <div class="sdetail">
+          <div class="dt">当前开关状态（实时）</div>
+          <div class="kv" id="pvSwitches">加载中…</div>
+          <div class="dt">配置文件</div>
+          <ul>
+            <li>LLM 开关 configs/llm.yaml（switches）</li>
+            <li>意图规则 configs/rule_patterns.yaml；召回策略 configs/recall_linkage.json；级联 configs/service.yaml</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+</main>
+
+<!-- QP JSON 抽屉 -->
+<div id="mask" class="hidden" onclick="toggleDrawer(false)"></div>
+<div id="drawer">
+  <div class="dh"><span>QP 输出 JSON</span><button class="ghost" onclick="toggleDrawer(false)">关闭</button></div>
+  <pre id="jsonOut">（先执行一次检索）</pre>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+
+document.querySelectorAll('nav button').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('nav button').forEach(x => x.classList.remove('on'));
+  b.classList.add('on');
+  document.querySelectorAll('.tabpage').forEach(sec =>
+    sec.classList.toggle('hidden', sec.id !== 'tab-' + b.dataset.tab));
+  if (b.dataset.tab === 'about') loadAbout();
+}));
+document.querySelectorAll('.subnav button').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('.subnav button').forEach(x => x.classList.remove('on'));
+  b.classList.add('on');
+  ['qpeval', 'reteval', 'nereval', 'timeeval'].forEach(s =>
+    $(`sub-${s}`).classList.toggle('hidden', b.dataset.sub !== s));
+}));
+
+const EXAMPLES = {
+  qp: '鼎龙股份 最新公告\n新华保险 半年报 净利润 同比 | INFO-04\n美联储 加息 影响\n黄金价格 走势 预测 | PREDICT-02\n白酒板块 资金流向',
+  retrieval: '智谱最新公告\n半导体设备 国产替代 最新进展\n瑞幸咖啡 门店扩张 策略 分析\n鼎龙股份 最新公告',
+  ner: '美联储 加息 影响\n鼎龙股份 最新公告\n腾讯控股 半年报 营收\n白酒板块 资金流向\n新能源汽车 销量 数据',
+  time: '近一周 白酒资金流向\n小米 股价趋势\n2026年8月 鼎龙股份 财报\n今天 A股 大盘\n美联储 加息 影响\n今年 新能源车销量'
+};
+const EXAMPLE_INPUTS = {qp: 'evalInput', retrieval: 'retInput', ner: 'nerInput', time: 'timeInput'};
+function fillExample(mode) {
+  $(EXAMPLE_INPUTS[mode] || 'evalInput').value = EXAMPLES[mode] || '';
+}
+
+function toggleDrawer(open) {
+  $('drawer').classList.toggle('open', open);
+  $('mask').classList.toggle('hidden', !open);
+  if (open && lastQP) $('jsonOut').textContent = JSON.stringify(lastQP, null, 2);
+}
+
+function toggleDev() {
+  const on = document.body.classList.toggle('dev');
+  $('devBtn').classList.toggle('on', on);
+  if (on) {
+    if (lastQP) $('jsonOut').textContent = JSON.stringify(lastQP, null, 2);
+    loadConfig();
+  }
+}
+
+// 说明页：卡片点击展开/收起（事件委托，只挂一次）；数据每次进入页面刷新
+document.addEventListener('click', e => {
+  const h = e.target.closest ? e.target.closest('.scard h4') : null;
+  if (h) h.closest('.scard').classList.toggle('open');
+});
+function loadAbout() {
+  fetch('/config').then(r => r.json()).then(c => {
+    // 实时统计：内容库 / 日期覆盖 / 实体词表 / jieba 词典
+    const s = c.stats || {};
+    const cov = s.docs ? Math.round((s.dated || 0) * 100 / s.docs) : null;
+    $('sysStats').innerHTML = [
+      ['内容库', `${s.docs ?? '—'} 篇`],
+      ['日期覆盖', cov != null ? `${cov}%` : '—'],
+      ['实体词表', `${s.entities ?? '—'} 实体`],
+      ['jieba 词典', `${s.dict_words ?? '—'} 词`],
+    ].map(([k, v]) => `<span class="chip"><span class="sub">${k}</span> <b>${v}</b></span>`).join('');
+    const p = c.design && c.design.ner_prompt;
+    $('sysNerPrompt').textContent = p ? p.trim() : '（LLM NER 未配置，仅规则词表 NER 生效）';
+    // 42 个二级意图按域分组
+    const doms = (c.design && c.design.domains) || [];
+    const ints = (c.design && c.design.intents) || [];
+    const DOMC = {INFO: '#0a84ff', ANALYZE: '#5e5ce6', SELECT: '#30b0c7', PREDICT: '#bf5af2',
+                  MONITOR: '#ff9f0a', COMPARE: '#ff375f', SERVICE: '#34c759', SYSTEM: '#8e8e93'};
+    $('sysL2').innerHTML = doms.map(d => {
+      const rows = ints.filter(i => i.domain === d.id);
+      if (!rows.length) return '';
+      return `<div class="l2grp"><div class="lh">
+          <span class="ld" style="background:${DOMC[d.id] || 'var(--accent)'}"></span>
+          ${esc(d.id)} ${esc(d.name)}<span class="cnt">· ${rows.length} 个</span></div>` +
+        rows.map(i => `<div class="l2item"><span class="iid">${esc(i.id)}</span>
+          <span class="nm">${esc(i.name)}</span><span class="nt">${esc(i.note)}</span></div>`).join('') +
+        `</div>`;
+    }).join('');
+    // ---- 各模块真实参数 ----
+    const P = (c.design && c.design.params) || {};
+    const kv = rows => `<div class="kv">${rows.map(([k, v]) =>
+      `<div class="r"><span class="k">${k}</span><span class="v">${v}</span></div>`).join('') || '<div class="r">—</div>'}</div>`;
+    const cas = P.cascade || {};
+    $('pvCascade').outerHTML = kv([
+      ['Tier0 规则直出门限', cas.tier0_min_conf ?? '—'],
+      ['Tier1 轻量模型接受门限', cas.tier1_accept ?? '—'],
+      ['Tier1 未校准模型门限', cas.tier1_lightweight_accept ?? '—'],
+      ['兜底意图', cas.fallback_intent ?? '—'],
+    ]).replace('<div class="kv">', '<div class="kv" id="pvCascade">');
+    const et = (c.design && c.design.ner_entity_types) || [];
+    $('pvEntTypes').innerHTML = et.map(t => `<span class="chip"><b>${esc(t)}</b></span>`).join('') || '—';
+    const rc = P.recall || {};
+    const md = c.models || {};
+    $('pvRecall').outerHTML = kv([
+      ['RRF 融合常数 k', rc.rrf_k ?? '—'],
+      ['EMB 池化', rc.emb_pool ?? '—'],
+      ['embedding 模型', md.embedding || '—'],
+      ['rerank 模型', md.rerank || '—'],
+      ['chat 模型', md.chat || '—'],
+    ]).replace('<div class="kv">', '<div class="kv" id="pvRecall">');
+    const fl = P.filter || {};
+    $('pvFilter').outerHTML = kv([
+      ['默认相关性阈值', fl.default_min_score ?? '—'],
+      ['rerank 最低分', fl.min_rerank_score ?? '—'],
+      ['同文去重 · 同域名', `标题相似 ≥ ${fl.dedup_same_site ?? '—'}`],
+      ['同文去重 · 跨域名', `标题相似 ≥ ${fl.dedup_cross_site ?? '—'}`],
+      ['freshness 新鲜度加权', `× ${fl.freshness_boost ?? '—'}`],
+      ['链指命中加权', `× ${fl.entity_boost ?? '—'}`],
+      ['内容频道匹配加权', `× ${fl.channel_match_boost ?? '—'}`],
+      ['信息词 IDF 分位', `P${(fl.info_idf_quantile ?? 0) * 100}`],
+    ]).replace('<div class="kv">', '<div class="kv" id="pvFilter">');
+    const BZ = {'in_one_day': '24小时内', 'one_week': '一周内', 'one_month': '一月内',
+                'one_year': '一年内', 'no_limit': '不限'};
+    const BD = {'in_one_day': 1, 'one_week': 7, 'one_month': 30, 'one_year': 365};
+    $('pvTime').outerHTML = kv(Object.keys(BZ).map(b =>
+      [BZ[b], BD[b] ? `近 ${BD[b]} 天（覆盖意图默认）` : '跟随意图 / 无窗']))
+      .replace('<div class="kv">', '<div class="kv" id="pvTime">');
+    const lw = P.latest_intent_windows || {};
+    $('pvLatestWin').outerHTML = kv(
+      Object.entries(lw).map(([iid, d]) => [iid, `「最新」时近 ${d} 天`]))
+      .replace('<div class="kv">', '<div class="kv" id="pvLatestWin">');
+    const eng = P.engines || [];
+    $('pvEngines').innerHTML = eng.map((e, i) =>
+      `<span class="chip"><b>${esc(e)}</b>${i === 0 ? ' 首选' : ''}</span>`).join('') || '—';
+    const SWN = {llm_intent: 'LLM 意图', llm_first: 'LLM 优先级联', llm_ner: 'LLM NER',
+                 embedding_recall: 'EMB 召回', rerank: 'Rerank 精排'};
+    const sw = c.switches || {};
+    $('pvSwitches').outerHTML = kv(Object.keys(SWN).map(k =>
+      [SWN[k], sw[k] ? '<span style="color:var(--good)">on</span>' : '<span style="color:var(--warn)">off</span>']))
+      .replace('<div class="kv">', '<div class="kv" id="pvSwitches">');
+  }).catch(() => { $('sysNerPrompt').textContent = '加载失败'; });
+}
+
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c =>
+  ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+
+let lastQP = null;
+
+// 系统抽屉：意图体系 chips（静态填充）
+const DOMAIN_NAMES = {INFO: '信息咨询', ANALYZE: '分析解读', SELECT: '选品筛选', PREDICT: '预测推演',
+  MONITOR: '监控告警', COMPARE: '对比评估', SERVICE: '服务指令', SYSTEM: '系统闲聊'};
+(function fillSys() {
+  $('sysDomains').innerHTML = Object.keys(DOMAIN_NAMES).map(d =>
+    `<span class="chip"><b>${d}</b> ${DOMAIN_NAMES[d]}</span>`).join('');
+})();
+function refreshLib() {
+  fetch('/health').then(r => r.json()).then(h => {
+    if (h.docs != null) $('libN').textContent = h.docs;
+  }).catch(() => {});
+}
+refreshLib();
+
+// 每日热点问题引导：百度热搜（直连，1h 缓存），失败回落 Google Trends / 内置热点。
+// 「↻」换一批：/hot?refresh=1 跳过缓存，LLM 排除已展示主题后重新筛选改写。
+const HOT_FALLBACK = ['小米集团 最新公告', '美联储 加息 影响', '白酒板块 资金流向'];
+const HOT_REFRESH_BTN = '<span class="chip hot" onclick="loadHot(true)" title="换一批">↻</span>';
+function renderHot(items, source) {
+  items = (items || []).slice(0, 3);
+  const tag = source && source !== 'builtin'
+    ? `<span class="hint" style="align-self:center;margin-right:4px" title="来源：${esc(source)}">今日热点：</span>`
+    : '<span class="hint" style="align-self:center">热门检索：</span>';
+  $('hotChips').innerHTML = tag +
+    items.map(h => `<span class="chip hot" onclick="hotSearch(this)">${esc(h)}</span>`).join('') +
+    HOT_REFRESH_BTN;
+}
+function loadHot(refresh) {
+  // 刷新时渲染骨架占位，避免内容跳变
+  $('hotChips').innerHTML = '<span class="hint" style="align-self:center">今日热点：</span>' +
+    HOT_FALLBACK.map(() => '<span class="chip skel">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>').join('') +
+    HOT_REFRESH_BTN;
+  fetch('/hot' + (refresh ? '?refresh=1' : '')).then(r => r.json()).then(d => {
+    renderHot(d.items && d.items.length ? d.items : HOT_FALLBACK, d.source);
+  }).catch(() => renderHot(HOT_FALLBACK));
+}
+loadHot(false);
+function hotSearch(el) { $('q').value = el.textContent; doSearch(); }
+
+// ---------------- 检索 ----------------
+async function doSearch() {
+  const q = $('q').value.trim();
+  if (!q) return;
+  const btn = $('btnSearch');
+  btn.disabled = true;
+  $('searchSpin').classList.remove('hidden');
+  const t0 = Date.now();
+  const timer = setInterval(() => {
+    const s = Math.round((Date.now() - t0) / 1000);
+    $('searchStatus').textContent = `检索中… ${s}s` +
+      (s > 5 ? '（本地库未命中，正在实时爬虫兜底，最长约 30–60 秒）' : '');
+  }, 500);
+  try {
+    const res = await fetch('/search/content', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({query: q, top: 8, min_score: +$('minScore').value,
+                            min_recall: +$('minRecall').value})
+    });
+    const text = await res.text();
+    let data;
+    try { data = JSON.parse(text); }
+    catch (_) { throw new Error('服务响应为空——请用 http://localhost:8100 访问本页（而非静态预览）'); }
+    if (!res.ok) throw new Error(data.detail || ('HTTP ' + res.status));
+    lastQP = data.qp;
+    renderSearch(data, q);
+    refreshLib();   // 兜底入库后 docs 计数可能变化，检索后同步刷新
+  } catch (e) {
+    $('resultsCard').classList.remove('hidden');
+    $('results').innerHTML = `<p class="err">检索失败：${esc(e.message)}</p>`;
+    $('qpRead').innerHTML = '';
+    $('funnel').innerHTML = '';
+  } finally {
+    clearInterval(timer);
+    $('searchStatus').textContent = '';
+    $('searchSpin').classList.add('hidden');
+    btn.disabled = false;
+  }
+}
+
+const TIER_NAMES = {0: '规则判定', 1: '轻量模型判定', 2: 'LLM 判定'};
+const BUCKET_NAMES = {in_one_day: '24小时内', one_week: '一周内', one_month: '一月内',
+                      one_year: '一年内', no_limit: '不限'};
+const SWITCH_GROUPS = [
+  {module: '意图理解', color: '#5e5ce6', items: [
+    {k: 'llm_intent', n: 'LLM 意图判定', d: '总闸：关闭后 LLM 完全不参与意图判定（级联只剩规则+轻量模型）'},
+    {k: 'llm_first', n: 'LLM 优先调度', d: '仅在上开关开启时有效：on = LLM 排在最前（失败回落轻量模型→规则）；off = LLM 退居末位只做兜底'}]},
+  {module: '实体识别', color: '#0a84ff', items: [
+    {k: 'llm_ner', n: 'LLM NER', d: '规则词表未命中核心实体时 LLM 补识别'}]},
+  {module: '召回', color: '#30b0c7', items: [
+    {k: 'embedding_recall', n: 'EMB 召回', d: 'Chunk 级 embedding 第三路向量召回'}]},
+  {module: '排序', color: '#34c759', items: [
+    {k: 'rerank', n: 'Rerank 精排', d: 'qwen3.7-text-rerank 对融合结果重排'}]},
+];
+const SWITCH_LABELS = {llm_intent: 'LLM 意图', llm_first: 'LLM 优先级联', llm_ner: 'LLM NER',
+                       embedding_recall: 'EMB 召回', rerank: 'Rerank 精排'};
+
+async function loadConfig() {
+  try {
+    const cfg = await (await fetch('/config')).json();
+    $('cfgSwitches').innerHTML = SWITCH_GROUPS.map(g => {
+      const rows = g.items.filter(it => it.k in cfg.switches).map(it => `
+        <div class="swrow" onclick="toggleSwitch('${it.k}')">
+          <div class="sl"><div class="n">${it.n}</div><div class="d">${it.d}</div></div>
+          <span class="swt ${cfg.switches[it.k] ? 'on' : ''}" data-k="${it.k}"></span>
+        </div>`).join('');
+      return rows ? `<div class="swgrp">
+        <div class="ghead"><span class="gd" style="background:${g.color}"></span>${g.module}</div>${rows}</div>` : '';
+    }).join('');
+  } catch (_) {}
+}
+async function toggleSwitch(k) {
+  try {
+    const cur = document.querySelector(`.swt[data-k="${k}"]`).classList.contains('on');
+    await fetch('/config/switch', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({name: k, value: !cur})});
+    await loadConfig();
+  } catch (_) {}
+}
+
+// ---------------- 兜底入库进度轮询 ----------------
+let _ingestTimer = null, _ingestQuery = null;
+const INGEST_STAGE_ZH = {queued: '排队中', clean: '质量清洗', fetch: '抓取正文',
+                         index: '重建索引', done: '完成', finished: '完成', error: '失败'};
+function stopIngestPoll() {
+  if (_ingestTimer) { clearInterval(_ingestTimer); _ingestTimer = null; }
+  _ingestQuery = null;
+}
+function startIngestPoll(query, baseChip) {
+  stopIngestPoll();
+  _ingestQuery = query;
+  _ingestTimer = setInterval(async () => {
+    if (_ingestQuery !== query) { stopIngestPoll(); return; }
+    try {
+      const r = await fetch(`/search/ingest_status?query=${encodeURIComponent(query)}`);
+      const st = await r.json();
+      if (!st.known) return;
+      const stageZh = INGEST_STAGE_ZH[st.stage] || st.stage;
+      if (st.stage === 'finished' || st.stage === 'done') {
+        stopIngestPoll();
+        const rej = st.rejected ? `，拒收 ${st.rejected} 条低质` : '';
+        $('fallbackBar').innerHTML =
+          `<div class="chip" style="border-left:3px solid var(--good);margin-bottom:10px;">` +
+          `兜底入库完成：已入库 <b>${st.new_docs ?? st.done}</b> 条${rej}，重试本查询可从库内直接命中</div>`;
+      } else if (st.stage === 'error') {
+        stopIngestPoll();
+        $('fallbackBar').innerHTML =
+          `<div class="chip" style="border-left:3px solid var(--warn);margin-bottom:10px;">` +
+          `兜底入库失败：${esc(st.error || '未知错误')}（展示结果不受影响）</div>`;
+      } else {
+        $('fallbackBar').innerHTML =
+          `<div class="chip" style="border-left:3px solid var(--good);margin-bottom:10px;">` +
+          `兜底清洗入库中：${stageZh} ${st.done}/${st.total} …</div>`;
+      }
+    } catch (e) { /* 网络抖动忽略，下轮重试 */ }
+  }, 2000);
+}
+
+function renderSearch(data, q) {
+  const qp = data.qp;
+  const lat = data.latency || qp.latency_ms || {};   // 优先端到端分段计时
+  const diag = data.diag || {};
+  const fb = data.fallback_crawl || {};
+
+  // ---- QP 解读条：每个字段带标签，人话表达 ----
+  const intent = (qp.intents || [])[0] || {};
+  const rc = (qp.recall || [])[0] || {};
+  const ent = (qp.entities || []).find(e => ['COMPANY', 'STOCK', 'STOCK_CODE'].includes(e.type));
+  const cells = [];
+  cells.push(['意图', `<b>${esc(intent.intent_id || '—')}</b> <span class="sub">${esc(qp.stats_category_16 || intent.domain || '')} · 置信 ${Math.round((intent.confidence || 0) * 100)}%</span>`]);
+  cells.push(['判定方式', `${TIER_NAMES[qp.tier] || ('tier ' + qp.tier)}${qp.escalated ? '（规则不足，LLM 升级）' : ''}`]);
+  const tw = rc.time_window_days;
+  const tc = rc.time_channel && rc.time_channel !== 'none' ? ` · ${esc(rc.time_channel)}` : '';
+  const anchorZh = (qp.time && qp.time.anchor) || '无';
+  const bucketKey = (qp.time && qp.time.bucket) || rc.time_bucket || 'no_limit';
+  // 显式桶（近一周/今年等）优先展示桶名；no_limit 时跟随 anchor 语义，
+  // 避免「不限 · 近 30 天」这种自相矛盾的组合
+  let tMain;
+  if (bucketKey !== 'no_limit') tMain = BUCKET_NAMES[bucketKey] || anchorZh;
+  else if (tw && anchorZh !== '无') tMain = anchorZh;
+  else tMain = '不限';
+  cells.push(['时效', `${esc(tMain)}<span class="sub">${tw ? ` · 近 ${tw} 天${tc}` : tc}</span>`]);
+  if (qp.slots) cells.push(['对象类型', esc(qp.slots.object_type || '—') + (ent ? `<span class="sub"> · ${esc(ent.text)}</span>` : '')]);
+  const ms = lat.total_ms;
+  const fmtD = m => m == null ? '—' : (m < 1000 ? Math.round(m) + ' ms' : (m / 1000).toFixed(1) + ' s');
+  const latParts = [];
+  if (lat.qp_ms != null) latParts.push(`意图 ${fmtD(lat.qp_ms)}`);
+  if (lat.search_ms != null) latParts.push(`检索 ${fmtD(lat.search_ms)}`);
+  if (lat.crawl_ms > 0) latParts.push(`兜底入库 ${fmtD(lat.crawl_ms)}`);
+  const latNote = latParts.length ? `<span class="sub">（${latParts.join(' · ')}）</span>` : '';
+  cells.push(['处理耗时', ms != null ? `${fmtD(ms)}${latNote}` : '—']);
+  const cov = diag.token_coverage;
+  const miss = diag.missing_entities || [];
+  let libTxt = cov != null ? (cov >= 0.999 ? '覆盖全部查询词' : `覆盖 ${(cov * 100).toFixed(0)}%`) : '—';
+  if (miss.length) libTxt += `<span class="sub"> · 缺失：${esc(miss.join('、'))}</span>`;
+  cells.push(['内容库', libTxt]);
+  $('qpRead').innerHTML = cells.map(([k, v]) =>
+    `<div class="qpi"><div class="k">${k}</div><div class="v">${v}</div></div>`).join('');
+  $('jsonOut').textContent = JSON.stringify(qp, null, 2);
+
+  // ---- 兜底提示条：两路搜索语义（诚实文案 + 入库进度轮询） ----
+  let fbBar = '';
+  if (fb.attempted) {
+    const fbChip = (color, msg) =>
+      `<div class="chip" style="border-left:3px solid ${color};margin-bottom:10px;">${msg}</div>`;
+    const nWeb = fb.web_hits || 0, nKept = fb.web_kept || 0;
+    if (fb.ingest && fb.ingest.queued && nWeb > 0) {
+      fbBar = fbChip('var(--good)', `库内未完全覆盖，已兜底搜索：<b>${nKept}</b> 条过阈值合并展示（共搜到 ${nWeb} 条），清洗入库中…`);
+      startIngestPoll(q, fbBar);
+    } else if (fb.ingest && fb.ingest.queued === false && nWeb > 0) {
+      fbBar = fbChip('var(--sub)', `库内未完全覆盖，已兜底搜索（入库任务进行中）：合并展示 ${nKept}/${nWeb} 条`);
+    } else if (fb.error) {
+      fbBar = fbChip('var(--warn)', `搜索兜底失败：${esc(fb.error)}`);
+    } else if (nWeb === 0 && (data.results || []).length) {
+      fbBar = fbChip('var(--warn)', '库内未完全覆盖该查询（新鲜度/覆盖率不足），兜底搜索暂无新结果，可稍后重试');
+    } else if (!(data.results || []).length) {
+      fbBar = fbChip('var(--warn)', '两路搜索均未获取到数据（库内 + 兜底），兜底文档入库中，可稍后重试');
+    } else {
+      fbBar = fbChip('var(--sub)', '兜底已执行：无新增数据');
+    }
+  } else {
+    stopIngestPoll();
+  }
+  $('fallbackBar').innerHTML = fbBar;
+
+  // ---- 开发者漏斗：竖向时间线，候选 → 各级过滤 → 返回 ----
+  const cand = (diag.n_filtered || 0) + (diag.n_entity_filtered || 0) +
+               (diag.n_recall_filtered || 0) +
+               (diag.n_below_threshold || 0) + (diag.n_dup_filtered || 0) +
+               (diag.n_time_filtered || 0) + (data.results || []).length;
+  const frow = (label, num, cls) =>
+    `<div class="ftl ${cls || ''}"><span class="fl">${label}</span><span class="fn">${num}</span></div>`;
+  const steps = [frow('召回候选', `${cand} 条`, 'top'),
+                 frow('召回模块', 'BM25 + chunk emb', 'fgroup')];
+  if (diag.n_filtered) steps.push(frow('信息词噪声', `−${diag.n_filtered}`, 'minus'));
+  if (diag.n_recall_filtered) steps.push(frow('相关性低分', `−${diag.n_recall_filtered}`, 'minus'));
+  if (diag.n_entity_filtered) steps.push(frow('实体不符', `−${diag.n_entity_filtered}`, 'minus'));
+  if (diag.entity_boost_hits != null) steps.push(frow('链指命中', diag.entity_boost_hits, 'info'));
+  if (diag.n_time_filtered) steps.push(frow('超时窗', `−${diag.n_time_filtered}`, 'minus'));
+  steps.push(frow('排序模块', 'qwen rerank', 'fgroup'));
+  if (diag.rerank) steps.push(frow('引擎状态', diag.rerank,
+                                   diag.rerank === 'on' ? 'info' : 'minus'));
+  if (diag.n_below_threshold) steps.push(frow('相关性低分', `−${diag.n_below_threshold}`, 'minus'));
+  if (diag.n_dup_filtered) steps.push(frow('同文去重', `−${diag.n_dup_filtered}`, 'minus'));
+  steps.push(frow('返回结果', `${(data.results || []).length} 条`, 'keep'));
+  $('funnel').innerHTML = steps.join('');
+
+  // ---- 结果卡片：左分数（短条）右最相关片段，底部正文前 250 字 ----
+  const cards = data.results.map((r, i) => {
+    const sub = r.sub_scores || {};
+    const hasRR = sub.rerank != null;
+    // rerank 分（精排）与召回分（chunk 级 emb 余弦）是两个体系：主分数按可用者显示
+    const relPct = Math.round((hasRR ? sub.rerank : (sub.vec ?? r.score)) * 100);
+    const relLbl = hasRR ? 'rerank 相关度' : '召回相关度';
+    const bmPct = Math.min(100, (sub.bm25 || 0) / (diag.max_bm25 || 1) * 100);
+    const mb = (name, cls, pct) =>
+      `<div class="mb ${cls}"><span class="name">${name}</span><div class="bar"><i style="width:${Math.max(0, Math.min(100, pct))}%"></i></div></div>`;
+    const embScore = (r.best_chunk && typeof r.best_chunk === 'object') ? r.best_chunk.emb : null;
+    const chunkRaw = r.best_chunk
+      ? (typeof r.best_chunk === 'object' ? r.best_chunk.text : r.best_chunk) : '';
+    const PREVIEW_LEN = 120;   // chunk 预览与正文预览统一固定字数
+    const chunkTxt = String(chunkRaw).slice(0, PREVIEW_LEN);
+    const isDev = document.body.classList.contains('dev');
+    const bcMeta = (isDev && r.best_chunk && typeof r.best_chunk === 'object')
+      ? `${esc(r.best_chunk.chunk_id || '')} · emb ${r.best_chunk.emb ?? '—'} · doc ${esc(r.best_chunk.doc_id || '')} #${r.best_chunk.seq ?? '—'}`
+      : '最相关片段';
+    const snip = r.snippet || '';
+    const dateOk = r.date && r.date <= new Date().toISOString().slice(0, 10);
+    const dateTag = dateOk ? `<span class="tag date" title="doc 发布日期">${esc(r.date)}</span>` : '';
+    return `<div class="rcard">
+      <div class="rhead"><span class="rank">${i + 1}</span><a href="${esc(r.url)}" target="_blank">${esc(r.title)}</a>
+        <span class="tag">${esc(r.content_type)}${sub.ent_link ? ' · 链指' : ''}${sub.web_fallback ? ' · 兜底' : ''}</span>${dateTag}</div>
+      <div class="rbody">
+        <div class="rscore">
+          <div class="rel"><div class="num">${relPct}<span style="font-size:11px">%</span></div><div class="lbl">${relLbl}</div></div>
+          <div class="mini">
+            ${mb('召回', 'vc', embScore != null ? embScore * 100 : 0)}
+            ${mb('BM25', 'bm', bmPct)}
+            ${mb('实体', 'ent', sub.ent_link ? 100 : 0)}
+          </div>
+        </div>
+        <div class="rchunk">${chunkTxt ? `<span class="cl">${bcMeta}</span>${esc(chunkTxt)}${String(chunkRaw).length > PREVIEW_LEN ? '…' : ''}` : ''}</div>
+      </div>
+      <div class="rfoot">${esc(snip.slice(0, PREVIEW_LEN))}${snip.length > PREVIEW_LEN ? '…' : ''}</div>
+    </div>`;
+  }).join('');
+  $('results').innerHTML = cards || '<p class="hint">无结果（两路搜索均未命中，兜底文档入库中，可稍后重试）</p>';
+  $('resultsCard').classList.remove('hidden');
+}
+
+// ---------------- 评测（意图 / 检索共用框架） ----------------
+const EVAL_UIS = {
+  qp:        {in: 'evalInput', btn: 'btnEval', spin: 'evalSpin', msg: 'evalMsg', out: 'evalOut'},
+  retrieval: {in: 'retInput',  btn: 'btnRet',  spin: 'retSpin',  msg: 'retMsg',  out: 'retOut'},
+  ner:       {in: 'nerInput',  btn: 'btnNer',  spin: 'nerSpin',  msg: 'nerMsg',  out: 'nerOut'},
+  time:      {in: 'timeInput', btn: 'btnTime', spin: 'timeSpin', msg: 'timeMsg', out: 'timeOut'},
+};
+async function doEval(mode) {
+  const ui = EVAL_UIS[mode];
+  const lines = $(ui.in).value.split('\n').map(l => l.trim()).filter(Boolean);
+  if (!lines.length) { $(ui.msg).textContent = '请输入或导入 query list'; return; }
+  $(ui.btn).disabled = true;
+  $(ui.spin).classList.remove('hidden');
+  $(ui.msg).textContent = `运行中，共 ${lines.length} 条…`;
+  try {
+    const res = await fetch('/eval/run', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({items: lines, mode})
+    });
+    if (!res.ok) throw new Error(JSON.stringify(await res.json()).slice(0, 200));
+    const data = await res.json();
+    ({qp: renderQpEval, retrieval: renderRetEval, ner: renderNerEval, time: renderTimeEval})[mode](data);
+    $(ui.msg).textContent = `完成，${lines.length} 条`;
+  } catch (e) {
+    $(ui.msg).textContent = '评测失败：' + e.message;
+  } finally {
+    $(ui.spin).classList.add('hidden');
+    $(ui.btn).disabled = false;
+  }
+}
+
+function renderNerEval(data) {
+  const m = data.metrics || {};
+  $('nerMetrics').innerHTML =
+    metric('query 数', m.n_queries ?? '—') +
+    metric('实体总数', m.n_entities ?? '—') +
+    metric('链指命中率', m.linked_pct != null ? m.linked_pct + '%' : '—') +
+    metric('平均耗时', (m.avg_ms ?? '—') + ' ms');
+  const typeDist = Object.entries(m.type_dist || {})
+    .map(([t, n]) => `<span class="chip"><b>${esc(t)}</b> ${n}</span>`).join('');
+  let html = '<tr><th>query</th><th>识别实体（类型 · 来源 · 链指）</th><th>耗时</th></tr>';
+  (data.results || []).forEach(r => {
+    const ents = (r.entities || []).map(e =>
+      `<span class="chip"><b>${esc(e.text)}</b>${e.type ? ' ' + esc(e.type) : ''}` +
+      `${e.source ? ` · ${esc(e.source)}` : ''}${e.eid ? ' · ✓链指' : ''}</span>`).join(' ') || '—';
+    html += `<tr><td>${esc(r.query)}</td><td>${ents}</td><td>${r.ms} ms</td></tr>`;
+  });
+  $('nerTable').innerHTML = html +
+    `<tr><td colspan="3" style="padding-top:10px">${typeDist || '（无实体）'}</td></tr>`;
+}
+
+function renderTimeEval(data) {
+  const m = data.metrics || {};
+  const BUCKET_ZH = {in_one_day: '24小时内', one_week: '一周内', one_month: '一月内',
+                     one_year: '一年内', no_limit: '不限'};
+  $('timeMetrics').innerHTML =
+    metric('query 数', m.n_queries ?? '—') +
+    Object.entries(m.bucket_dist || {})
+      .sort((a, b) => b[1] - a[1])
+      .map(([b, n]) => metric(BUCKET_ZH[b] || b, n)).join('');
+  let html = '<tr><th>query</th><th>时效桶</th><th>锚点</th><th>召回窗口</th><th>通道</th></tr>';
+  (data.results || []).forEach(r => {
+    html += `<tr><td>${esc(r.query)}</td><td><b>${BUCKET_ZH[r.bucket] || esc(r.bucket)}</b></td>
+      <td>${esc(r.anchor)}</td>
+      <td>${r.window != null ? '近 ' + r.window + ' 天' : '意图默认'}</td>
+      <td>${esc(r.channel_zh || r.channel)}</td></tr>`;
+  });
+  $('timeTable').innerHTML = html;
+}
+
+function metric(k, v) {
+  return `<div class="metric"><div class="v">${v}</div><div class="k">${k}</div></div>`;
+}
+
+function renderQpEval(data) {
+  const a = data.accuracy || {};
+  const c = data.confidence_dist || {};
+  const l = data.latency || {};
+  $('evalMetrics').innerHTML =
+    metric('L2 准确率', a.l2_acc != null ? (a.l2_acc * 100).toFixed(1) + '%' : '—') +
+    metric('16类准确率', a.product16_acc != null ? (a.product16_acc * 100).toFixed(1) + '%' : '—') +
+    metric('升级率 tier2', (data.escalate_rate * 100).toFixed(1) + '%') +
+    metric('延迟 p50/p90', l.p50_ms + ' / ' + l.p90_ms + ' ms') +
+    metric('conf 中位', c.median ?? '—') +
+    metric('conf p10–p90', `${c.p10 ?? '—'}–${c.p90 ?? '—'}`);
+  let html = '<tr><th>query</th><th>预测</th><th>conf</th><th>tier</th><th>gold</th><th>判定</th></tr>';
+  data.results.forEach(r => {
+    html += `<tr><td>${esc(r.query)}</td><td>${esc(r.pred_l2)}</td>
+      <td>${r.confidence}</td><td>${r.tier}</td><td>${esc(r.gold_l2 || '—')}</td>
+      <td class="${r.correct_l2 == null ? '' : (r.correct_l2 ? 'ok' : 'no')}">${r.correct_l2 == null ? '—' : (r.correct_l2 ? '✓' : '✗')}</td></tr>`;
+  });
+  $('evalTable').innerHTML = html;
+  $('evalOut').classList.remove('hidden');
+}
+
+function toggleRetDetail(idx) {
+  const tr = $('retd-' + idx);
+  tr.classList.toggle('hidden');
+  tr.previousElementSibling.querySelector('td').textContent = tr.classList.contains('hidden') ? '▸' : '▾';
+}
+
+function renderRetEval(data) {
+  const rm = data.recall_metrics || {};
+  const rk = data.ranking_metrics || {};
+  const c = data.confidence_dist || {};
+  $('retMetrics').innerHTML =
+    metric('hit@5', rm.hit5_rate != null ? (rm.hit5_rate * 100).toFixed(1) + '%' : '—') +
+    metric('MRR', rk.mrr ?? '—') +
+    metric('nDCG@5', rk.ndcg5 ?? '—') +
+    metric('平均库覆盖', rm.avg_token_coverage != null ? (rm.avg_token_coverage * 100).toFixed(0) + '%' : '—') +
+    metric('conf 中位', c.median ?? '—') +
+    metric('conf p10–p90', `${c.p10 ?? '—'}–${c.p90 ?? '—'}`);
+  let html = '<tr><th style="width:24px"></th><th>query</th><th>意图</th><th>conf</th><th>相关文档</th><th>hit@5</th><th>MRR</th><th>nDCG@5</th><th>缺失实体</th></tr>';
+  data.results.forEach((r, idx) => {
+    html += `<tr class="retrow" style="cursor:pointer" onclick="toggleRetDetail(${idx})">
+      <td style="color:var(--sub)">▸</td><td>${esc(r.query)}</td><td>${esc(r.pred_l2)}</td><td>${r.confidence}</td>
+      <td>${r.n_relevant}</td>
+      <td class="${r.hit5 == null ? '' : (r.hit5 ? 'ok' : 'no')}">${r.hit5 == null ? '—' : (r.hit5 ? '✓' : '✗')}</td>
+      <td>${r.mrr}</td><td>${r.ndcg5 ?? '—'}</td>
+      <td>${esc((r.missing_entities || []).join(', ') || '—')}</td></tr>`;
+    const tops = r.top_results || [];
+    const det = tops.length
+      ? tops.map(t => `<div class="retdrow"><span class="rs">${t.rerank ?? t.score ?? '—'}</span><span>${esc(t.title)}</span></div>`).join('')
+      : '<span class="hint">无检索结果</span>';
+    html += `<tr id="retd-${idx}" class="hidden"><td colspan="9" style="background:var(--chip)">
+      <div class="retd"><b style="font-size:11px;color:var(--sub)">逐条检索 Top 结果（分数 = rerank 相关性，点击行收起）</b>${det}</div>
+    </td></tr>`;
+  });
+  $('retTable').innerHTML = html;
+  $('retOut').classList.remove('hidden');
+}
+</script>
+</body>
+</html>

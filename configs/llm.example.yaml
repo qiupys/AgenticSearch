@@ -1,0 +1,19 @@
+llm:
+  # 阿里云百炼 compatible-mode（OpenAI 兼容协议）。供应商无关：
+  # 换供应商只需改 api_key + api_base + models 三项，代码无需改动。
+  # 真实配置放 configs/llm.yaml（已 gitignore），本文件为脱敏模板：
+  #   cp configs/llm.example.yaml configs/llm.yaml 后填入真实值。
+  api_key: "sk-your-api-key-here"
+  api_base: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+  timeout_s: 30
+  models:
+    chat: qwen3.8-27b
+    embedding: qwen3.7-text-embedding-flash
+    rerank: qwen3.7-text-rerank
+  rerank_path: /rerank
+  switches:                    # 各 LLM 能力开关（可独立关闭降级为规则）
+    llm_intent: true
+    llm_first: true
+    llm_ner: true
+    embedding_recall: true
+    rerank: true

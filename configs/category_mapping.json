@@ -1,0 +1,87 @@
+version: "1.0"
+date: "2026-09-22"
+description: >
+  产品 16 类用户需求分类（自有/三方评测口径，见 QP大模型需求文档 与 20260821 两份基线评测报告）
+  与统一意图体系 8域×42二级 的映射。评测时 L2 命中 acceptable_l2 任一即记对；
+  L1 命中 acceptable_l1 任一即记对。primary 为体系内代表类目。
+
+mappings:
+  - product_category: 查新闻
+    aliases: [查资讯]
+    primary_l2: INFO-07
+    acceptable_l2: [INFO-07]
+    acceptable_l1: [INFO]
+  - product_category: 查公告
+    primary_l2: INFO-07
+    acceptable_l2: [INFO-07]
+    acceptable_l1: [INFO]
+  - product_category: 查研报
+    primary_l2: INFO-08
+    acceptable_l2: [INFO-08]
+    acceptable_l1: [INFO]
+  - product_category: 查大V/社媒观点
+    primary_l2: INFO-08
+    acceptable_l2: [INFO-08]
+    acceptable_l1: [INFO]
+  - product_category: 查电话会议
+    primary_l2: INFO-08
+    acceptable_l2: [INFO-08]
+    acceptable_l1: [INFO]
+  - product_category: 投资者互动
+    primary_l2: INFO-08
+    acceptable_l2: [INFO-08]
+    acceptable_l1: [INFO]
+    note: 董秘问答/互动易归入 INFO-08 研报与观点检索
+  - product_category: 查书籍-法律
+    primary_l2: INFO-09
+    acceptable_l2: [INFO-09, SERVICE-03]
+    acceptable_l1: [INFO, SERVICE]
+    note: 法律法规检索归多媒体与文献；涉及监管合规规则时 SERVICE-03 可接受
+  - product_category: 数据查询
+    primary_l2: INFO-04
+    acceptable_l2: [INFO-01, INFO-02, INFO-03, INFO-04, INFO-05, INFO-06]
+    acceptable_l1: [INFO]
+  - product_category: 投教问答
+    primary_l2: SERVICE-01
+    acceptable_l2: [SERVICE-01]
+    acceptable_l1: [SERVICE]
+  - product_category: 预测推演
+    primary_l2: PREDICT-02
+    acceptable_l2: [PREDICT-01, PREDICT-02, PREDICT-03, PREDICT-04, PREDICT-05, PREDICT-06]
+    acceptable_l1: [PREDICT]
+  - product_category: 标的推荐
+    aliases: [推荐标的]
+    primary_l2: SELECT-04
+    acceptable_l2: [SELECT-04]
+    acceptable_l1: [SELECT]
+  - product_category: 机会挖掘
+    primary_l2: SELECT-03
+    acceptable_l2: [SELECT-03, SELECT-01, SELECT-02]
+    acceptable_l1: [SELECT]
+  - product_category: 确定性标的筛选
+    primary_l2: SELECT-01
+    acceptable_l2: [SELECT-01, SELECT-02, SELECT-03]
+    acceptable_l1: [SELECT]
+  - product_category: 消息事件解读
+    aliases: [消息事件溯因]
+    primary_l2: ANALYZE-06
+    acceptable_l2: [ANALYZE-06, ANALYZE-01]
+    acceptable_l1: [ANALYZE]
+  - product_category: 行情事件解读
+    aliases: [行情事件溯因]
+    primary_l2: ANALYZE-06
+    acceptable_l2: [ANALYZE-06, ANALYZE-02, ANALYZE-03, ANALYZE-04]
+    acceptable_l1: [ANALYZE]
+  - product_category: 诊断分析
+    primary_l2: ANALYZE-01
+    acceptable_l2: [ANALYZE-01, ANALYZE-02, ANALYZE-03, ANALYZE-04, ANALYZE-05, ANALYZE-06, ANALYZE-07]
+    acceptable_l1: [ANALYZE]
+  - product_category: 事实探究核验
+    aliases: [事件/关联核实]
+    primary_l2: INFO-04
+    acceptable_l2: [INFO-04, INFO-07, INFO-08]
+    acceptable_l1: [INFO]
+    note: >
+      核实类在 42 类体系中无专属类目：股权/治理/关联关系核实→INFO-04（治理股本），
+      传闻属实性核验→INFO-07（资讯检索），机构观点核实→INFO-08。映射取并集，
+      体系 v3 修订建议增补『事实核验』二级（见 docs/02）。
