@@ -153,6 +153,39 @@ def load_chunk_emb_cache() -> tuple:
     return {}, None
 
 
+def embed_missing_chunks(chunks: list, client) -> None:
+    """补齐 chunk 向量缓存（低锁占用版）。
+
+    锁内只做缓存读取与最终合并写盘（毫秒级）；嵌入 API 调用在锁外——
+    ingest 收尾预热补嵌大量 chunk 时不再阻塞检索路径的召回
+    （旧实现整段持锁，检索会等预热几十秒）。失败静默。
+    """
+    try:
+        with _CHUNK_LOCK:
+            cache, matrix = load_chunk_emb_cache()
+        missing = [c for c in chunks if c["chunk_id"] not in cache]
+        if not missing:
+            return
+        vecs = client.embed([c["text"][:1024] for c in missing])
+        if vecs is None:
+            return
+        with _CHUNK_LOCK:
+            # 重新读盘合并：预热期间检索路径可能已写入部分向量，跳过已有项
+            cache, matrix = load_chunk_emb_cache()
+            still = [(c, v) for c, v in zip(missing, vecs)
+                     if c["chunk_id"] not in cache]
+            if not still:
+                return
+            mat = np.array([v for _c, v in still], dtype=np.float32)
+            matrix = mat if matrix is None else np.vstack([matrix, mat])
+            for c, _v in still:
+                cache[c["chunk_id"]] = len(cache)
+            np.savez(_CHUNK_EMB_PATH, ids=np.array(list(cache.keys())),
+                     matrix=matrix.astype(np.float32))
+    except Exception:
+        pass
+
+
 def chunk_embedding_scores(query: str, chunks: list, client) -> np.ndarray | None:
     """query 与全部 chunk 的余弦相似度（缓存增量补齐）。失败返回 None。"""
     with _CHUNK_LOCK:
