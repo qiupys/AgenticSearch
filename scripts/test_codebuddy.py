@@ -48,6 +48,7 @@ def ask(model: str = "hy3", use_proxy: bool = True) -> None:
             {"role": "user", "content": '用户问题：北方华创最新订单进展\n输出 {"next":"answer","sub_queries":[]} 格式'},
         ],
         "stream": True,
+        "enable_thinking": False,   # 与 CodeBuddyClient 一致：压低思考开销
         "stream_options": {"include_usage": True},
     }
     data = json.dumps(body, ensure_ascii=False).encode("utf-8")

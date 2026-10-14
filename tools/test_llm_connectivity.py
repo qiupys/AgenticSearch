@@ -33,7 +33,7 @@ def post(path, payload, timeout=30):
 
 print("== chat =", MODELS["chat"])
 s, r = post("/chat/completions", {
-    "model": MODELS["chat"], "max_tokens": 512,
+    "model": MODELS["chat"], "max_tokens": 512, "enable_thinking": False,
     "messages": [{"role": "user", "content": "只回复 JSON: {\"ok\": true}"}]})
 print("  status:", s)
 print("  resp:", json.dumps(r, ensure_ascii=False)[:300] if isinstance(r, dict)
