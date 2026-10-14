@@ -31,12 +31,13 @@ def main():
     import io
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
     print(f"query: {query}")
-    print(f"intents: {intents}  tier={qp.tier}")
+    print(f"intents: {[i.intent_id for i in qp.intents]}")
     print(f"time: anchor={qp.time.anchor} bucket={qp.time.bucket}")
     if qp.recall:
         rc = qp.recall[0]
         print(f"recall: channel={rc.channel} role={rc.role} pref={rc.content_type_pref} "
               f"window={rc.time_window_days}d")
+    print(f"diag: rerank={diag.get('rerank')} vec_only_filtered={diag.get('n_vec_only_filtered')}")
     print("-" * 70)
     for s, d, sub, bc in results:
         print(f"[{s:.4f}] rerank={sub.get('rerank')} ({d['content_type']}) {d['title'][:60]}")

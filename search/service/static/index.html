@@ -813,7 +813,7 @@ function toggleAgent() {
   $('btnAgent').classList.toggle('on', agentMode);
 }
 
-const ACTION_ZH = {search: '双源检索', content_search: '库内检索', web_search: 'Web 检索', answer: '收束作答'};
+const ACTION_ZH = {search: '双源检索', answer: '收束作答'};
 function renderAgent(data) {
   const steps = data.steps || [];
   const argsZh = a => a && (a.sub_queries ? '拆分 ' + a.sub_queries.length + ' 子查询'

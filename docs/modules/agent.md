@@ -84,9 +84,29 @@ content_search（补充查询是独立 query，各自走完整 QP 与召回通�
 - 预算不足：提前强制收束，不丢已有结果；综合（synth）受独立时限约束
   （剩余 <20s 或超上限 45s 时改用毫秒级摘录兜底），端到端最坏 ≈ budget_s + 40s。
 
+## 性能画像与优化路线（2026-10-14 实测）
+
+latency 分解（`latency.planner_ms/tools_ms` + 每步 `ms.{planner,tool}` + `diag.{load,recall,rank,web_wall,web_rerank,web_emb}_ms`）：
+
+| 阶段 | 优化前 | 优化后 | 手段 |
+|---|---|---|---|
+| QP 第 0 步 | 9~12s（冷启动）/ 3.5s | **~2s**（暖态） | 主链路切 qwen3.8-flash + 服务预热 |
+| 工具/轮 | 15~29s | **5~9s** | 见下三条 |
+| ├ load_all | 8s/次 | ~0（暖态） | 进程内 mtime 缓存（ingest 落盘自动失效重载） |
+| ├ recall 内嵌 | 冷缓存一次 +28s | 后台化 | embed 分批并行（4 线程）+ ingest 线程收尾预热缓存 |
+| ├ web 抓正文 | 5s/轮（同步） | 并行隐藏 | content_head 移至后台线程，与 Planner/synth 重叠 |
+| └ web 预算 | 15s | 12s | web_wall 实测仅 ~2s，余量为尾部引擎留 |
+| Planner | 26~42s（占总时长 36~69%） | **未解决，头号优化项** | step-5-preview 单次决策 9~19s 且方差大 |
+
+**下一步建议（按预期收益排序）**：
+1. **Planner 切 qwen3.8-flash**（预期 -25~35s，总时长 → ~25s）：Planner 是纯 JSON
+   决策任务，flash 实测单次 ~2s。改法：调换 `_plan_with_fallback` 顺序（flash 优先、
+   CodeBuddy 兜底），或 llm.yaml agent 段改 `provider` 走主链路。代价：消耗主链路额度。
+2. **同 query 结果缓存（TTL 300s）**：演示场景重复查询直接回放（<100ms）。
+3. **QP intent/NER 两次 LLM 并行化**（-1.5s）；启动时预热一发空查询（消冷启动）。
+
 ## 已知边界
 
-- hy3 单次 planner 决策约 5~12s、综合约 20~30s，端到端典型 60~90s
-  （QP 理解 ~12s + 每轮 planner+工具 ~25s + 综合 ~30s；免费上游单次失败率
-  ~20-30%，重试与降级会进一步拉长个别请求）。
+- planner 决策 9~19s/次（step-5-preview，方差大）、综合 20~30s，当前端到端典型 50~70s；
+  免费上游单次失败率 ~20-30%，重试与降级会进一步拉长个别请求。
 - 库内无相关文档时 r1 即选 web_search（符合预期）；web 引擎失败则答案缺失、仅透出检索结果。

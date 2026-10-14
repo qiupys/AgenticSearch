@@ -173,16 +173,21 @@ def _tool_search_both(args: dict, top: int, svc_cfg: dict,
 
     def _web():
         try:
-            return _ws(web_q, proxy, 8, budget_s=15.0)
+            return _ws(web_q, proxy, 8, budget_s=12.0)
         except Exception:
             return []
 
     # 库内各子查询 + web 源：一线程一任务，整体并行
+    _ts = time.perf_counter()
     with ThreadPoolExecutor(max_workers=len(queries) + 1) as ex:
         web_f = ex.submit(_web)
         lib_fs = {q: ex.submit(_lib_one, q) for q in queries}
         web_hits = web_f.result()
+        _web_wall = time.perf_counter() - _ts
         lib_outs = [lib_fs[q].result() for q in queries]
+        _lib_wall = time.perf_counter() - _ts   # 并行：取至最慢者
+    sub_timing = {"web_wall_ms": round(_web_wall * 1000, 1),
+                  "lib_wall_ms": round(_lib_wall * 1000, 1)}
 
     # ---- 库内侧合并（多子查询 URL 去重）----
     if len(lib_outs) == 1:
@@ -228,7 +233,9 @@ def _tool_search_both(args: dict, top: int, svc_cfg: dict,
         for d in web_docs:
             d["authority"] = _web_authority(d["url"])
         # 语义分：与库内同一 embedding 模型算余弦（结果挂在 best_chunk.emb）
+        _te = time.perf_counter()
         _web_semantic_emb(web_q, web_docs)
+        sub_timing["web_emb_ms"] = round((time.perf_counter() - _te) * 1000, 1)
         # 链指：QP 核心实体在标题/摘要中出现
         ent_texts = []
         if qp0 is not None:
@@ -239,20 +246,8 @@ def _tool_search_both(args: dict, top: int, svc_cfg: dict,
         for d in web_docs:
             d["ent_link"] = bool(ent_texts) and any(
                 e in f"{d.get('title', '')}{d.get('snippet', '')}" for e in ent_texts)
-        # 正文开头：前 4 条并行短超时抓取（控延迟，失败留空不阻塞）
-        try:
-            from tools.inline_crawl import quick_fetch
-            with ThreadPoolExecutor(max_workers=4) as ex2:
-                futs = {d["url"]: ex2.submit(quick_fetch, d["url"], proxy, 5)
-                        for d in web_docs[:4]}
-                for d in web_docs[:4]:
-                    body, dt = futs[d["url"]].result()
-                    if body:
-                        d["content_head"] = body[:220]
-                    if dt and not d.get("date"):
-                        d["date"] = dt
-        except Exception:
-            pass
+        # 正文开头不在此处抓取（5s/轮太贵）——统一由 _finish 前的后台线程
+        # 与 Planner 后续轮次 / synth 并行（见 _start_content_fetch）
     web_scored = []
     if web_docs:
         try:
@@ -262,7 +257,9 @@ def _tool_search_both(args: dict, top: int, svc_cfg: dict,
             if getattr(_cli, "enabled", False) and _cli.switch("rerank"):
                 _texts = [f"{d.get('title', '')} {d.get('snippet', '')}"[:512]
                           for d in web_docs]
+                _tr = time.perf_counter()
                 _rr = _cli.rerank(web_q, _texts) or []
+                sub_timing["web_rerank_ms"] = round((time.perf_counter() - _tr) * 1000, 1)
                 _sc = {i: float(s) for i, s in _rr}
             for i, d in enumerate(web_docs):
                 sub = {"rerank": round(_sc[i], 4)} if i in _sc else {}
@@ -280,6 +277,7 @@ def _tool_search_both(args: dict, top: int, svc_cfg: dict,
 
     diag = dict(diag or {})
     diag["web_hits"] = len(web_hits)
+    diag.update(sub_timing)   # 工具内部分解：lib/web 墙钟、web rerank/emb 耗时
     if web_hits:
         threading.Thread(
             target=lambda: _ingest(web_q, web_hits, proxy=proxy), daemon=True).start()
@@ -500,11 +498,42 @@ def agent_search(query: str, top: int = 6, max_rounds: int = 3,
     last_out: Optional[dict] = None
     degraded = False
     rounds = 0
+    planner_ms = 0.0             # 累计 Planner 决策耗时（含兜底尝试）
+    tools_ms = 0.0               # 累计工具（双源检索）耗时
     # 投机综合：首轮出文档后即后台启动 synth（与循环并行），
     # _finish 时按剩余预算等待其完成——隐藏 20~45s 的综合耗时
     synth_state: dict = {"answer": None, "thread": None}
+    content_fetched = {"started": False}
+
+    def _start_content_fetch():
+        """web 卡「正文开头」延迟抓取：首轮出文档后即后台并行（5s 上限），
+        与 Planner 后续轮次 / synth 重叠，不再阻塞工具轮。"""
+        if content_fetched["started"]:
+            return
+        content_fetched["started"] = True
+        web_ds = [d for _s, d, _su, _bc in doc_pool
+                  if d.get("content_type") == "web" and not d.get("content_head")][:4]
+        if not web_ds:
+            return
+
+        def _run():
+            try:
+                from tools.inline_crawl import quick_fetch
+                with ThreadPoolExecutor(max_workers=4) as ex2:
+                    futs = {d["url"]: ex2.submit(quick_fetch, d["url"], proxy, 5)
+                            for d in web_ds}
+                    for d in web_ds:
+                        body, dt = futs[d["url"]].result()
+                        if body:
+                            d["content_head"] = body[:220]
+                        if dt and not d.get("date"):
+                            d["date"] = dt
+            except Exception:
+                pass
+        threading.Thread(target=_run, daemon=True).start()
 
     def _maybe_start_synth():
+        _start_content_fetch()   # 正文开头后台抓取（与后续轮次/ synth 并行）
         if synth_state["thread"] is None and all_docs and planner_ok:
             def _run():
                 snapshot = list(all_docs)
@@ -564,7 +593,9 @@ def agent_search(query: str, top: int = 6, max_rounds: int = 3,
                             "best_chunk": bc if isinstance(bc, dict) else None,
                             "ref": ref})
         lat = {"total_ms": round((time.perf_counter() - t0) * 1000, 1),
-               "qp_ms": qp_ms, "rounds": rounds}
+               "qp_ms": qp_ms, "rounds": rounds,
+               "planner_ms": round(planner_ms * 1000, 1),
+               "tools_ms": round(tools_ms * 1000, 1)}
         return {"query": query, "answer": answer, "citations": cits, "steps": steps,
                 "results": results,
                 # 原 query 的 QP 理解（前端 QP 面板固定展示它，与子查询无关）
@@ -610,14 +641,20 @@ def agent_search(query: str, top: int = 6, max_rounds: int = 3,
             steps.append({"round": rnd, "thought": "预算不足，强制收束",
                           "action": "answer", "args": {}, "observation": {"n_new_docs": 0}})
             break
+        _planner_step = 0.0
         try:
             _e = time.perf_counter() - t0
+            _tp = time.perf_counter()
             plan = _plan_with_fallback(
                 _PLANNER_PROMPT.replace("{query}", query)
                                .replace("{qp_block}", qp_block)
                                .replace("{history}", _history_text(steps)),
                 timeout=min(20.0, max(8.0, budget_s - _e)))
+            _planner_step = time.perf_counter() - _tp
+            planner_ms += _planner_step
         except Exception:
+            _planner_step = time.perf_counter() - _tp
+            planner_ms += _planner_step
             plan = None
         if plan is None:
             if not steps:
@@ -652,17 +689,19 @@ def agent_search(query: str, top: int = 6, max_rounds: int = 3,
                           "observation": {"n_new_docs": 0}})
             break
         executed_qs.update(_norm_q(q) for q in qs)
+        _tt = time.perf_counter()
         out = _tool_search_both(args, top, svc_cfg, qp0=qp0, orig_query=query)
+        _tool_step = time.perf_counter() - _tt
+        tools_ms += _tool_step
         obs, docs, full = _obs_from_results(out, seen_urls)
         all_docs.extend(docs)
         doc_pool.extend(full)
-        if out.get("qp") and not last_out:
+        # 保留最后有结果的轮次（供 diag/qp）；首轮无结果也保留（透出 qp）
+        if out.get("results") or last_out is None:
             last_out = out
-        elif out.get("results") and last_out is None:
-            last_out = out
-        if out.get("results"):
-            last_out = out
-        steps.append({"round": rnd, **plan, "observation": obs})
+        steps.append({"round": rnd, **plan, "observation": obs,
+                      "ms": {"planner": round(_planner_step * 1000, 1),
+                             "tool": round(_tool_step * 1000, 1)}})
         _maybe_start_synth()   # 有文档即投机综合，与后续轮次并行
 
     return _finish()

@@ -194,18 +194,34 @@ class LLMClient:
 
     # ------------------------------------------------------------------
     def embed(self, texts: list[str], batch_size: int = 10) -> list[list[float]] | None:
-        """批量向量化（自动分批，服务端对单批条数有上限）；失败返回 None。"""
+        """批量向量化（自动分批，服务端对单批条数有上限）；失败返回 None。
+
+        冷启动补嵌大量 chunk 时（如入库后首次检索），分批串行会累加数百秒级
+        API 耗时——分批并行（4 线程）提交，按批序号归位结果。
+        """
         if not texts:
             return []
-        out: list[list[float]] = []
-        for i in range(0, len(texts), batch_size):
-            chunk = [t[:1024] for t in texts[i:i + batch_size]]
+        batches = [texts[i:i + batch_size] for i in range(0, len(texts), batch_size)]
+
+        def _one(batch):
             r = self._post(self.base + "/embeddings",
-                           {"model": self.embed_model, "input": chunk})
+                           {"model": self.embed_model, "input": [t[:1024] for t in batch]})
             if not r or "data" not in r:
                 return None
             data = sorted(r["data"], key=lambda x: x["index"])
-            out.extend(d["embedding"] for d in data)
+            return [d["embedding"] for d in data]
+
+        if len(batches) == 1:
+            out_b = [_one(batches[0])]
+        else:
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=4) as ex:
+                out_b = list(ex.map(_one, batches))
+        if any(b is None for b in out_b):
+            return None
+        out: list[list[float]] = []
+        for b in out_b:
+            out.extend(b)
         return out
 
     # ------------------------------------------------------------------

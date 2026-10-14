@@ -221,6 +221,16 @@ def ingest_hits(query: str, hits: list[dict], proxy: str = "",
         if new_docs:
             _p("index", 0, new_docs)
             build_index(corpus)
+            # 预热 chunk 向量缓存：新入库 chunk 立即补嵌（后台线程内），
+            # 否则首次检索要付全量嵌入耗时（实测冷缓存一次 +28s）
+            try:
+                from search.engine.corpus import load_or_build_chunks, chunk_embedding_scores
+                from qp.common.llm_client import default_client
+                _cli = default_client()
+                if getattr(_cli, "enabled", False) and _cli.switch("embedding_recall"):
+                    chunk_embedding_scores("", load_or_build_chunks(), _cli)
+            except Exception:
+                pass
             # 自学习：从新 doc 标题挖核心实体的扩展形式 -> 注册别名
             try:
                 from qp.common.learn import learn_alias, mine_alias

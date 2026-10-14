@@ -32,27 +32,39 @@ _CHUNK_EMB_PATH = os.path.join(CONTENT_DIR, "chunk_embeddings.npz")
 _CHUNK_LOCK = threading.Lock()
 
 
+_LOAD_CACHE: dict = {}   # {sig: (corpus_mtime, index_mtime), corpus, idx}
+
+
 def load_all() -> tuple:
     """加载语料 + BM25 索引，并初始化 jieba 用户词典。
+
+    进程内缓存（文件 mtime 签名）：ingest/重建落盘后 mtime 变化自动重载；
+    未变化时直接复用——省去每次查询 8s 级的 JSON/pickle 解析与 jieba 重载。
 
     自检：bm25 索引文档数与 corpus 不一致（多进程同时入库 / 重建竞态导致
     index.pkl 落后于 corpus.jsonl）时当场重建索引，避免召回层 shape 错乱。
     """
     import jieba
-    with open(os.path.join(CONTENT_DIR, "corpus.jsonl"), encoding="utf-8") as f:
+    cpath = os.path.join(CONTENT_DIR, "corpus.jsonl")
+    ipath = os.path.join(CONTENT_DIR, "index.pkl")
+    sig = (os.path.getmtime(cpath), os.path.getmtime(ipath))
+    if _LOAD_CACHE.get("sig") == sig:
+        return _LOAD_CACHE["corpus"], _LOAD_CACHE["idx"]
+    with open(cpath, encoding="utf-8") as f:
         corpus = [json.loads(line) for line in f if line.strip()]
-    with open(os.path.join(CONTENT_DIR, "index.pkl"), "rb") as f:
+    with open(ipath, "rb") as f:
         idx = pickle.load(f)
     n_bm25 = len(getattr(idx.get("bm25"), "doc_freqs", ()) or ())
     if n_bm25 != len(corpus):
         from tools.build_content_library import build_index
         build_index(corpus)   # 自愈重建（~500 docs 秒级）
-        with open(os.path.join(CONTENT_DIR, "index.pkl"), "rb") as f:
+        with open(ipath, "rb") as f:
             idx = pickle.load(f)
     dict_path = os.path.join(ROOT, "data", "dict", "jieba_user_dict.txt")
     if os.path.exists(dict_path):
         jieba.load_userdict(dict_path)
     jieba.initialize()
+    _LOAD_CACHE.update(sig=sig, corpus=corpus, idx=idx)
     return corpus, idx
 
 

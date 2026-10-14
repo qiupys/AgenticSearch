@@ -37,17 +37,25 @@ def search(query: str, top: int = 10, bm25_weight: float = 1.0,
     """
     from qp.pipeline.app import process_query
 
+    import time as _time
+    _t0 = _time.perf_counter()
     qp = qp if qp is not None else process_query(query)
     corpus, idx = load_all()
+    _t1 = _time.perf_counter()
 
     # ---- 召回模块 ----
     scored, best_chunk_of_doc, emb_client, diag = _recall.recall_candidates(
         query, qp, corpus, idx, search_cfg)
+    _t2 = _time.perf_counter()
 
     # ---- 排序模块 ----
     scored, rank_diag = _ranking.rank_candidates(
         query, scored, corpus, best_chunk_of_doc, emb_client, search_cfg)
+    _t3 = _time.perf_counter()
     diag.update(rank_diag)
+    diag["load_ms"] = round((_t1 - _t0) * 1000, 1)
+    diag["recall_ms"] = round((_t2 - _t1) * 1000, 1)
+    diag["rank_ms"] = round((_t3 - _t2) * 1000, 1)
 
     # ---- 输出组装 ----
     results = _ranking.finalize(scored, corpus, best_chunk_of_doc, top)
