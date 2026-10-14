@@ -60,7 +60,7 @@ class PredictRequest(BaseModel):
 
 
 class BatchRequest(BaseModel):
-    queries: list = Field(..., min_items=1, max_items=50)
+    queries: list = Field(..., min_length=1, max_length=50)
 
 
 @app.post("/predict")
@@ -148,6 +148,34 @@ class ContentSearchRequest(BaseModel):
                                        description="rerank 相关性阈值（开发模式可调，默认取配置）")
     min_recall: Optional[float] = Field(None, ge=0, le=1,
                                         description="召回相关性阈值（chunk 级 emb 余弦，默认取配置）")
+
+
+# ---------------- Agentic 检索（ReAct 循环） ----------------
+
+class AgentSearchRequest(BaseModel):
+    query: str = Field(..., min_length=1, max_length=512)
+    top: int = Field(6, ge=1, le=20)
+
+
+@app.post("/agent/search")
+def agent_search_ep(req: AgentSearchRequest):
+    """Agentic 检索：Planner LLM 循环决策（库内检索 / web 兜底 / 收束）。
+
+    返回 {answer(带[n]引用), citations, steps(推理轨迹), results, qp, diag,
+          rounds, degraded, latency}；agent 开关关闭或 LLM 不可用时降级单发。
+    """
+    from search.agent import agent_search as _agent
+    _SEARCH_GATE.acquire()
+    try:
+        with _SEARCH_ACTIVE_LOCK:
+            _SEARCH_ACTIVE["n"] += 1
+        try:
+            return _agent(req.query, top=req.top)
+        finally:
+            with _SEARCH_ACTIVE_LOCK:
+                _SEARCH_ACTIVE["n"] -= 1
+    finally:
+        _SEARCH_GATE.release()
 
 
 @app.get("/search/ingest_status")
@@ -261,16 +289,23 @@ def _launch_ingest(query: str, proxy: str, hits: list, core_ents: list) -> dict:
             "note": "兜底搜索结果后台清洗入库中，进度见 /search/ingest_status"}
 
 
-def _web_fallback_scored(query: str, hits: list, scfg: dict) -> list:
-    """web 兜底搜索结果经同一 rerank 通道打分 + 阈值过滤，返回可合并的伪 doc 结果。
+def _web_fallback_scored(query: str, hits: list, scfg: dict, qp=None) -> list:
+    """web 兜底搜索结果经同一 rerank 通道打分 + 阈值过滤，返回可合并的 web doc 结果。
 
     分数与库内结果同源（qwen rerank），阈值同一配置（min_rerank_score）——
-    两路合并透出时口径一致。rerank 不可用时返回空（不透出未打分的裸结果）。
+    两路合并透出时口径一致。卡片三件套与库内对齐：
+      语义 = 同一 embedding 模型的余弦（挂 best_chunk.emb，带持久缓存）；
+      关键词 = query 分词在标题/摘要中的覆盖度（web 不在 BM25 索引内，口径不同）；
+      链指 = QP 核心实体命中标题/摘要。
+    另附 权威度（域名分级）/ 日期（标题/摘要/URL 提取）。rerank 不可用时返回空。
     """
     if not hits:
         return []
     try:
         from qp.common.llm_client import default_client
+        from tools.inline_crawl import web_authority
+        from tools.build_content_library import (extract_date,
+                                                 extract_date_from_url)
         cli = default_client()
         if not cli.switch("rerank"):
             return []
@@ -279,18 +314,56 @@ def _web_fallback_scored(query: str, hits: list, scfg: dict) -> list:
         rr = cli.rerank(query, texts)
         if not rr:
             return []
+        # 语义分：伪 chunk 过同一 embedding 余弦（web_ 前缀 chunk_id 入持久缓存）
+        emb_map = {}
+        try:
+            import hashlib
+            from search.engine.corpus import chunk_embedding_scores
+            if cli.switch("embedding_recall"):
+                chunks = [{"chunk_id": "web_" + hashlib.md5(h["url"].encode()).hexdigest()[:12],
+                           "text": texts[i]} for i, h in enumerate(hits)]
+                scores = chunk_embedding_scores(query, chunks, cli)
+                if scores is not None:
+                    emb_map = {i: float(sc) for i, sc in enumerate(scores)
+                               if sc is not None and sc >= 0}
+        except Exception:
+            emb_map = {}
+        # 链指：QP 核心实体
+        ent_texts = []
+        if qp is not None:
+            try:
+                ent_texts = [e.get("text", "") for e in qp.to_dict().get("entities", [])
+                             if e.get("text")]
+            except Exception:
+                ent_texts = []
+        # 关键词覆盖度（与 agent 路 _kw_coverage 同口径）
+        def _kw(text):
+            try:
+                import jieba as _j
+                toks = [t for t in _j.lcut(query) if len(t.strip()) >= 2]
+                return round(sum(1 for tok in toks if tok in (text or "")) / len(toks), 3) \
+                    if toks else 0.0
+            except Exception:
+                return 0.0
         out = []
         for i, sc in rr:
             if float(sc) < min_rr:
                 continue
             h = hits[i]
+            dt = extract_date(f"{h['title']} {h['snippet']}") \
+                or extract_date_from_url(h.get("url", ""))
             doc = {"id": f"web_{i}", "title": h["title"], "url": h["url"],
-                   "snippet": h["snippet"], "content_type": "news",
-                   "sentiment": "", "lang": "zh", "date": None}
-            bc = {"chunk_id": None, "doc_id": doc["id"], "seq": 0,
-                  "text": (h["snippet"] or h["title"]).strip()[:240], "emb": None}
-            out.append((float(sc), doc, {"rerank": round(float(sc), 4),
-                                         "web_fallback": True}, bc))
+                   "snippet": h["snippet"], "content_type": "web",
+                   "sentiment": "", "lang": "zh", "date": dt,
+                   "authority": web_authority(h.get("url", ""))}
+            bc = {"chunk_id": f"web_{i}", "doc_id": doc["id"], "seq": 0,
+                  "text": (h["snippet"] or h["title"]).strip()[:240],
+                  "emb": round(emb_map[i], 4) if i in emb_map else None}
+            sub = {"rerank": round(float(sc), 4), "web_fallback": True,
+                   "kw": _kw(f"{h['title']} {h['snippet']}")}
+            if ent_texts and any(e in f"{h['title']}{h['snippet']}" for e in ent_texts):
+                sub["ent_link"] = True
+            out.append((float(sc), doc, sub, bc))
         return out
     except Exception:
         return []
@@ -319,7 +392,7 @@ def _search_content_body(req, cfg, proxy, on_demand, min_coverage, scfg, _search
     data, crawled = None, {"attempted": False, "new_docs": 0}
     try:
         _ts = time.perf_counter()
-        qp, intents, slots, results, diag = _search(req.query, req.top, search_cfg=scfg)
+        qp, results, diag = _search(req.query, req.top, search_cfg=scfg)
         _t_search += time.perf_counter() - _ts
         _learn(qp, diag)
         # 两路搜索：库内检索为第 1 路；结果 weak 时第 2 路（web 兜底）同步跑
@@ -358,7 +431,7 @@ def _search_content_body(req, cfg, proxy, on_demand, min_coverage, scfg, _search
                     _SEARCH_RECENT[req.query] = time.time()
                 _t_crawl += time.perf_counter() - _ts
                 crawled["web_hits"] = len(hits)
-                web_scored = _web_fallback_scored(req.query, hits, scfg)
+                web_scored = _web_fallback_scored(req.query, hits, scfg, qp=qp)
                 crawled["web_kept"] = len(web_scored)
                 if web_scored:
                     results = _merge_results(results, web_scored)[:req.top]
@@ -383,7 +456,7 @@ def _search_content_body(req, cfg, proxy, on_demand, min_coverage, scfg, _search
             raise HTTPException(status_code=503,
                                 detail=f"content index missing and on-demand crawl failed: {e2}")
         try:
-            qp, intents, slots, results, diag = _search(req.query, req.top, search_cfg=scfg)
+            qp, results, diag = _search(req.query, req.top, search_cfg=scfg)
         except FileNotFoundError:
             raise HTTPException(status_code=503, detail="content library still empty after crawl")
     except Exception as e:
@@ -393,6 +466,7 @@ def _search_content_body(req, cfg, proxy, on_demand, min_coverage, scfg, _search
     _qp_ms = (_qd.get("latency_ms") or {}).get("total_ms") or 0
     # 展示层清洗：老库文档的滚动新闻条/模板句在输出侧剔除（不动索引，立即生效）
     from search.engine.clean import strip_boilerplate
+    from tools.inline_crawl import web_authority
     out_results = []
     for s, d, sub, bc in results:
         d2 = dict(d)
@@ -415,6 +489,7 @@ def _search_content_body(req, cfg, proxy, on_demand, min_coverage, scfg, _search
                      "snippet": d["snippet"], "content_type": d["content_type"],
                      "sentiment": d["sentiment"], "lang": d["lang"],
                      "date": d.get("date"),          # doc 发布日期（时效展示）
+                     "authority": d.get("authority") or web_authority(d.get("url", "")),
                      "sub_scores": sub,
                      "best_chunk": bc}   # dict: chunk_id/doc_id/seq/text/emb（开发模式展示）
                     for s, d, sub, bc in out_results],
@@ -660,7 +735,7 @@ def hot_queries(refresh: bool = False):
 
 
 class SwitchRequest(BaseModel):
-    name: str = Field(..., pattern="^(llm_intent|llm_first|llm_ner|embedding_recall|rerank)$")
+    name: str = Field(..., pattern="^(llm_intent|llm_first|llm_ner|embedding_recall|rerank|agent)$")
     value: bool
 
 
@@ -710,7 +785,7 @@ _TIME_CHANNEL_ZH = {"freshness": "最新", "absolute": "绝对时点", "range": 
 
 def _eval_time(items: list) -> dict:
     """时效模块评测：五桶判定 + 时间锚点 + 窗口/通道（纯规则，无 LLM 开销）。"""
-    from qp.slots.extractor import detect_time_bucket, infer_time_anchor
+    from qp.time.extractor import detect_time_bucket, infer_time_anchor
     from qp.recall.linkage import _BUCKET_DAYS
     bucket_dist: Counter = Counter()
     rows = []
@@ -739,7 +814,7 @@ class EvalItem(BaseModel):
 
 
 class EvalRunRequest(BaseModel):
-    items: list = Field(..., min_items=1, max_items=2000)
+    items: list = Field(..., min_length=1, max_length=2000)
     mode: str = Field("qp", pattern="^(qp|retrieval|ner|time)$")
     # qp=意图评测 | retrieval=召回+排序评测 | ner=实体评测 | time=时效评测
 
@@ -821,7 +896,6 @@ def eval_run(req: EvalRunRequest):
             "pred_l1": out.intents[0].domain if out.intents else "",
             "tier": out.tier,
             "confidence": conf,
-            "slots": out.slots,
             "gold_l2": gold_l2, "gold_product_category": gold_cat,
             "correct_l2": (pred_l2 == gold_l2) if gold_l2 else None,
         })
@@ -904,7 +978,7 @@ def _eval_retrieval(items: list) -> dict:
     for it in items:
         q = it["query"]
         try:
-            qp, _, _, results, diag = _search(q, 8, search_cfg=cfg)
+            qp, results, diag = _search(q, 8, search_cfg=cfg)
         except FileNotFoundError:
             qp, results, diag = process_query(q), [], {}
         entities = qp.to_dict().get("entities", [])

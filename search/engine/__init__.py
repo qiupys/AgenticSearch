@@ -25,16 +25,19 @@ from . import ranking as _ranking
 
 
 def search(query: str, top: int = 10, bm25_weight: float = 1.0,
-           vec_weight: float = 1.0, search_cfg: dict | None = None):
+           vec_weight: float = 1.0, search_cfg: dict | None = None,
+           qp=None):
     """端到端检索：QP -> 召回 -> 排序 -> 结果。
 
-    返回 (qp, intents, slots, results, diag)；
+    返回 (qp, results, diag)；qp 为完整 QPOutput（intents/entities/time/recall），
     results = [(score, doc, sub, best_chunk), ...]。
+    qp 可选传入已算好的 QPOutput（agent 循环复用第 0 步理解，避免重复推理）；
+    缺省时内部调用 process_query(query)。
     bm25_weight/vec_weight 为历史兼容参数（TF-IDF 路已删除），当前无效果。
     """
     from qp.pipeline.app import process_query
 
-    qp = process_query(query)
+    qp = qp if qp is not None else process_query(query)
     corpus, idx = load_all()
 
     # ---- 召回模块 ----
@@ -48,5 +51,4 @@ def search(query: str, top: int = 10, bm25_weight: float = 1.0,
 
     # ---- 输出组装 ----
     results = _ranking.finalize(scored, corpus, best_chunk_of_doc, top)
-    intents = [(i.intent_id, i.domain) for i in qp.intents]
-    return qp, intents, qp.slots, results, diag
+    return qp, results, diag

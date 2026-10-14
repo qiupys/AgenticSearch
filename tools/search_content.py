@@ -26,17 +26,17 @@ from search.engine import (CONTENT_DIR, chunk_embedding_scores, load_all,  # noq
 def main():
     query = sys.argv[1] if len(sys.argv) > 1 else "鼎龙股份 最新公告 新闻 2026年8月"
     top = int(sys.argv[sys.argv.index("--top") + 1]) if "--top" in sys.argv else 8
-    qp, intents, slots, results, diag = search(query, top)
+    qp, results, diag = search(query, top)
 
     import io
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
     print(f"query: {query}")
     print(f"intents: {intents}  tier={qp.tier}")
-    print(f"slots: object_type={slots['object_type']} time_anchor={slots['time_anchor']}")
+    print(f"time: anchor={qp.time.anchor} bucket={qp.time.bucket}")
     if qp.recall:
         rc = qp.recall[0]
-        print(f"recall: role={rc.role} pref={rc.content_type_pref} "
-              f"window={rc.time_window_days}d channel={rc.time_channel}")
+        print(f"recall: channel={rc.channel} role={rc.role} pref={rc.content_type_pref} "
+              f"window={rc.time_window_days}d")
     print("-" * 70)
     for s, d, sub, bc in results:
         print(f"[{s:.4f}] rerank={sub.get('rerank')} ({d['content_type']}) {d['title'][:60]}")

@@ -7,7 +7,7 @@ llm:
   api_base: "https://dashscope.aliyuncs.com/compatible-mode/v1"
   timeout_s: 30
   models:
-    chat: qwen3.8-27b
+    chat: qwen3.8-flash
     embedding: qwen3.7-text-embedding-flash
     rerank: qwen3.7-text-rerank
   rerank_path: /rerank
@@ -17,3 +17,28 @@ llm:
     llm_ner: true
     embedding_recall: true
     rerank: true
+    agent: true                # Agentic 检索循环总开关（agent 路模型见下方 agent 段）
+
+  # ---- 备选方案：opencode Zen 免费模型（经本地代理） ----
+  # api_base 指向本地代理 tools/llm_proxy.py（默认 http://127.0.0.1:8180/v1），
+  # api_key 填占位值；代理向上游注入真实 key（读 opencode auth.json 或
+  # OPENCODE_API_KEY）。Zen 无 embeddings/rerank，对应开关需置 false。
+  # 示例：
+  #   api_key: "local-opencode-placeholder"
+  #   api_base: "http://127.0.0.1:8180/v1"
+  #   models: {chat: big-pickle, embedding: "", rerank: ""}
+  #   switches: {llm_intent: true, llm_first: true, llm_ner: true,
+  #              embedding_recall: false, rerank: false}
+
+# ---- agent 路（Agentic 检索循环专用 profile，可选）----
+# provider=codebuddy：CodeBuddy CLI 免费模型（hy3），协议为
+# www.codebuddy.cn/v2/chat/completions + ck_ key + CLI 指纹头 + 强制 SSE
+# 流式（客户端聚合；ck_ key 仅 .cn 域有效，免费档仅限 hy3 等模型）。
+# 不配置则回落主链路 llm 段；也可去掉 provider 走任意 OpenAI 兼容上游。
+agent:
+  provider: codebuddy
+  api_key: "ck_your-key-here"
+  api_base: "https://www.codebuddy.cn"
+  timeout_s: 60
+  models:
+    chat: hy3

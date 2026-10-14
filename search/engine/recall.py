@@ -3,6 +3,7 @@
 
 职责：query + QP 输出 -> 候选文档列表（含召回侧诊断）。
   1. 多路召回：BM25 词面路 + chunk 级 embedding 语义路（doc = max chunk）
+     + 意图专用通道（QP 每个意图一条独立排序路，v2.0 三路架构）
   2. RRF 融合 + 意图驱动软加权（内容类型偏好/情绪）
   3. 召回侧过滤（顺序即漏斗顺序）：
        信息词噪声（泛词 IDF 分位，链指命中豁免）
@@ -13,7 +14,7 @@
 
 输入契约：
   query       str          原始查询
-  qp          QPOutput     QP 模块产物（intents/slots/entities/recall 条件）
+  qp          QPOutput     QP 模块产物（intents/entities/time/recall 条件）
   corpus/idx  corpus.load_all() 产物
   search_cfg  dict         min_recall_score / info_idf_quantile / ...
 
@@ -48,7 +49,26 @@ def recall_candidates(query: str, qp, corpus: list, idx: dict,
     cfg = search_cfg or {}
     n_docs = len(corpus)
 
+    # ---- 意图召回通道：全部条件参与（不只主意图），每个意图一个专用通道 ----
+    conds = [c for c in (qp.recall or []) if c.weight > 0 and c.role != "不走内容召回"]
     recall_cond = qp.recall[0] if qp.recall else None
+    try:
+        from qp.recall.linkage import _linkage as _linkage_cfg
+        ch_cfgs = _linkage_cfg().get("channels", {})
+    except Exception:
+        ch_cfgs = {}
+
+    # 核心实体集合前置：实体链指命中优先级高于噪声过滤（命中实体 docs 不被泛词过滤误杀）
+    q_core_eids = {e.eid for e in qp.entities
+                   if getattr(e, "eid", "") and e.type in
+                   {"COMPANY", "STOCK", "STOCK_CODE", "INDEX", "INDUSTRY",
+                    "FUND", "MACRO", "ORG"}}
+
+    def _doc_eids(d):
+        return {le.get("eid") for le in (d.get("linked_entities") or [])}
+
+    core_hit_docs = ({i for i, d in enumerate(corpus) if _doc_eids(d) & q_core_eids}
+                     if q_core_eids else set())
 
     # ---- 路 1：BM25 词面召回 ----
     toks = [t for t in jieba.lcut(query.lower()) if t.strip()]
@@ -85,6 +105,34 @@ def recall_candidates(query: str, qp, corpus: list, idx: dict,
     except Exception:
         emb_status = "fail"
     diag = {"embedding": emb_status}
+
+    # ---- 路 3：意图专用通道召回（每个意图一条独立排序路，参与 RRF）----
+    # 通道分 = BM25 主干 ×（1 + 0.3×意图权重）^ 命中通道内容类型
+    #        ×（1.15 ^ 正向情绪命中，仅 boost_positive 通道）
+    #        ×（1.2 ^ 核心实体链指命中，disclosure/research 类通道加成）
+    doc_types = [d.get("content_type", "") for d in corpus]
+    diag["channels"] = {}
+    for cond in conds:
+        ch_types = set(ch_cfgs.get(cond.channel, {}).get("content_types", [])) \
+            | set(cond.content_type_pref)
+        if not ch_types:
+            continue
+        ch_score = bm25_scores.astype(np.float32).copy()
+        type_hit = np.array([t in ch_types for t in doc_types], dtype=np.float32)
+        ch_score *= np.power(1.0 + 0.3 * float(cond.weight), type_hit)
+        if cond.sentiment == "boost_positive":
+            sent_pos = np.array([d.get("sentiment") == "positive" for d in corpus],
+                                dtype=np.float32)
+            ch_score *= np.power(1.15, sent_pos)
+        if cond.channel in ("disclosure", "research") and core_hit_docs:
+            ent_hit = np.zeros(n_docs, dtype=np.float32)
+            ent_hit[list(core_hit_docs)] = 1.0
+            ch_score *= np.power(1.2, ent_hit)
+        ch_rank = list(np.argsort(-ch_score))[:50]
+        rank_lists.append(ch_rank)
+        diag["channels"][cond.channel] = {"intent": cond.intent_id,
+                                          "top": [corpus[i].get("id") for i in ch_rank[:3]]}
+
     fused = _rrf(rank_lists)
 
     # ---- 诊断：IDF 加权覆盖率 + 缺失 token（供兜底触发）----
@@ -115,18 +163,6 @@ def recall_candidates(query: str, qp, corpus: list, idx: dict,
     boost_sent = None
     if recall_cond and recall_cond.sentiment == "boost_positive":
         boost_sent = "positive"
-
-    # 核心实体集合前置：实体链指命中优先级高于噪声过滤（命中实体 docs 不被泛词过滤误杀）
-    q_core_eids = {e.eid for e in qp.entities
-                   if getattr(e, "eid", "") and e.type in
-                   {"COMPANY", "STOCK", "STOCK_CODE", "INDEX", "INDUSTRY",
-                    "FUND", "MACRO", "ORG"}}
-
-    def _doc_eids(d):
-        return {le.get("eid") for le in (d.get("linked_entities") or [])}
-
-    core_hit_docs = ({i for i, d in enumerate(corpus) if _doc_eids(d) & q_core_eids}
-                     if q_core_eids else set())
 
     # ---- 过滤 1：信息量 token BM25（泛词噪声剔除；实体命中 docs 豁免）----
     info_min_idf = float(cfg.get("info_idf_quantile", 0.5))
@@ -190,9 +226,8 @@ def recall_candidates(query: str, qp, corpus: list, idx: dict,
     # q 带 market 槽位且实体词表有该市场代码：doc 文本含目标市场代码 -> match，
     # 含其他市场代码且不含目标 -> mismatch。存在 match 时剔除 mismatch（无代码的 neutral 保留）。
     n_market_filtered = 0
-    q_market = (getattr(qp, "slots", {}) or {}).get("market") \
-        or next((getattr(e, "market", "") for e in (qp.entities or [])
-                 if getattr(e, "market", "")), "")
+    q_market = next((getattr(e, "market", "") for e in (qp.entities or [])
+                     if getattr(e, "market", "")), "")
     if q_market and scored:
         try:
             from qp.ner.entity_linker import default_linker

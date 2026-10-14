@@ -70,6 +70,64 @@ def web_search(query: str, proxy: str, max_results: int = 8,
     return []
 
 
+def web_authority(url: str) -> int:
+    """web 来源权威度分级（0-3）：
+    3 官方权威（政府/监管/交易所/央媒/头部财媒）
+    2 专业财经媒体与行情站点
+    1 综合门户/未收录站点（默认）
+    0 论坛/UGC（可信度最低）
+    """
+    u = (url or "").lower()
+    if not u:
+        return 1
+    # 0：论坛/UGC（先判，防 zhihu 专栏等被域名包含误判）
+    if re.search(r"(tieba\.baidu|zhihu\.com|weibo\.com|douban\.com|blog\.|bbs\.|/forum|tieba\.com)", u):
+        return 0
+    # 3：官方权威
+    if re.search(r"(gov\.cn|sse\.com\.cn|szse\.cn|neeq\.com\.cn|xinhuanet\.com|"
+                 r"people\.com\.cn|cctv\.com|chinanews\.com|caixin\.com|stcn\.com|"
+                 r"cnstock\.com|cs\.com\.cn)", u):
+        return 3
+    # 2：专业财经（主流财媒/行情站/门户财经频道；含路径级 finance 信号）
+    if re.search(r"(eastmoney|10jqka|xueqiu|cls\.cn|wallstreetcn|yicai|21jingji|"
+                 r"jiemian|thepaper|jin10|fx168|cngold|cnfol|jrj\.com|ce\.cn|"
+                 r"investing\.com|hexun\.com|futunn|moomoo|traderscn|gold\.org|"
+                 r"sina\.com\.cn|ifeng\.com|163\.com|sohu\.com|qq\.com|cnbeta)", u):
+        return 2
+    if re.search(r"(finance\.|caijing|money\.|stock\.|forex\.|jijin|qieman)", u):
+        return 2
+    return 1
+
+
+def quick_fetch(url: str, proxy: str = "", timeout: int = 6) -> tuple:
+    """短超时抓单页：返回 (正文文本|None, 提取日期|None)。
+
+    质量门禁：WAF 挑战页 / JS 脚本 / mojibake 不入 body——
+    snippet 已含搜索引擎摘要，body 脏不如无 body。
+    供 ingest_hits 时效补全与 agent web 卡「正文开头」复用。
+    """
+    try:
+        import requests
+        from tools.build_content_library import extract_date_from_html
+        from qp.common.normalize import fix_mojibake, is_junk_text
+        r = requests.get(url, timeout=timeout, proxies=(
+            {"http": proxy, "https": proxy} if proxy else None),
+            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+                     "Accept-Language": "zh-CN,zh;q=0.9"})
+        r.encoding = r.apparent_encoding or r.encoding   # 防 mojibake
+        html = r.text[:60000]
+        body = re.sub(r"<script[\s\S]*?</script>|<style[\s\S]*?</style>"
+                      r"|<noscript[\s\S]*?</noscript>|<iframe[\s\S]*?</iframe>"
+                      r"|<svg[\s\S]*?</svg>|<[^>]+>", " ", html)
+        body = re.sub(r"\s+", " ", body).strip()[:6000]
+        body = fix_mojibake(body)
+        if is_junk_text(body):
+            return None, extract_date_from_html(html)
+        return body, extract_date_from_html(html)
+    except Exception:
+        return None, None
+
+
 def ingest_hits(query: str, hits: list[dict], proxy: str = "",
                 core_entities: list | None = None,
                 progress=None) -> dict:
@@ -108,31 +166,8 @@ def ingest_hits(query: str, hits: list[dict], proxy: str = "",
         n_rejected = 0
 
         def _quick_date_body(url: str):
-            """短超时抓正文，提日期 + 补 body（供 chunk/打标）。失败返回 (None, None)。
-
-            质量门禁：WAF 挑战页 / JS 脚本 / mojibake 不入 body——
-            snippet 已含搜索引擎摘要，body 脏不如无 body。
-            """
-            try:
-                import requests
-                from tools.build_content_library import extract_date_from_html
-                from qp.common.normalize import fix_mojibake, is_junk_text
-                r = requests.get(url, timeout=6, proxies=(
-                    {"http": proxy, "https": proxy} if proxy else None),
-                    headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-                             "Accept-Language": "zh-CN,zh;q=0.9"})
-                r.encoding = r.apparent_encoding or r.encoding   # 防 mojibake
-                html = r.text[:60000]
-                body = re.sub(r"<script[\s\S]*?</script>|<style[\s\S]*?</style>"
-                              r"|<noscript[\s\S]*?</noscript>|<iframe[\s\S]*?</iframe>"
-                              r"|<svg[\s\S]*?</svg>|<[^>]+>", " ", html)
-                body = re.sub(r"\s+", " ", body).strip()[:6000]
-                body = fix_mojibake(body)
-                if is_junk_text(body):
-                    return None, extract_date_from_html(html)
-                return body, extract_date_from_html(html)
-            except Exception:
-                return None, None
+            """兼容包装：短超时抓正文（提日期 + 补 body）。失败返回 (None, None)。"""
+            return quick_fetch(url, proxy, timeout=6)
 
         with open(CORPUS_PATH, "a", encoding="utf-8") as fout:
             fetched = 0

@@ -3,7 +3,8 @@
 
 职责：召回候选 -> 最终结果（含排序侧诊断）。
   1. rerank 全候选重排（qwen3.7-text-rerank，输入 = doc 最相关 chunk，上限 64 控延迟）
-  2. rerank 相关性阈值过滤（展示分即排序分：链指/频道加成不参与排序，仅作标记）
+  2. rerank 相关性阈值过滤（展示分即排序分：链指/频道加成不参与排序，仅作标记；
+     vec-only 文档——词面零命中仅 embedding 召回——按更高门槛过滤导航页噪声）
   3. 同文去重（URL 归一必去重；标题相似同域 >=0.6 / 跨域 >=0.85）
   4. 截断 top 并附 best_chunk
 
@@ -29,6 +30,9 @@ def rank_candidates(query: str, scored: list, corpus: list, best_chunk_of_doc: d
                     emb_client, search_cfg: dict | None = None):
     cfg = search_cfg or {}
     min_rr = float(cfg.get("min_rerank_score", 0.3))
+    # vec-only 文档（词面零命中，仅靠 embedding 召回）噪声率极高：
+    # 导航页 boilerplate / 正文侧栏词都可能向量凑近，必须用更高 rerank 门槛
+    vec_only_min = float(cfg.get("vec_only_min_rerank", 0.5))
 
     rerank_status = "off"
     if emb_client is not None and emb_client.switch("rerank") and scored:
@@ -54,10 +58,23 @@ def rank_candidates(query: str, scored: list, corpus: list, best_chunk_of_doc: d
                     reranked.append((float(rscore), d, sub))
                 reranked.sort(key=lambda x: -x[0])
                 scored = reranked
-                # 阈值过滤：rerank 已覆盖全部候选，无分（API 漏返回）同样视为低相关丢弃
-                kept = [(s, d, sub) for s, d, sub in scored
-                        if sub.get("rerank") is not None and sub["rerank"] >= min_rr]
-                diag_add = {"n_below_threshold": len(scored) - len(kept)}
+                # 阈值过滤：rerank 已覆盖全部候选，无分（API 漏返回）同样视为低相关丢弃；
+                # vec-only（bm25=0）文档按更高门槛过滤——词面零命中 + 中低语义分
+                # 几乎都是导航页/侧栏噪声（如"资金流向首页"混入"上海楼市"结果）
+                kept, n_vec_only = [], 0
+                for s, d, sub in scored:
+                    rr = sub.get("rerank")
+                    if rr is None:
+                        continue
+                    if not sub.get("bm25"):
+                        if rr >= vec_only_min:
+                            kept.append((s, d, sub))
+                        else:
+                            n_vec_only += 1
+                    elif rr >= min_rr:
+                        kept.append((s, d, sub))
+                diag_add = {"n_below_threshold": len(scored) - len(kept) - n_vec_only,
+                            "n_vec_only_filtered": n_vec_only}
                 scored = kept
             else:
                 diag_add = {}

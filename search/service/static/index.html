@@ -71,7 +71,7 @@
   button.cta:active { transform: translateY(0); }
   button.cta:disabled { opacity: .45; cursor: default; transform: none; }
   button.ghost { background: #fff; color: var(--text); border: 1px solid var(--line);
-                 border-radius: 10px; padding: 7px 16px; font-size: 13.5px; cursor: pointer;
+                 border-radius: 10px; padding: 8px 22px; font-size: 14px; font-weight: 600; cursor: pointer;
                  transition: border-color .15s, color .15s, background .15s; }
   button.ghost:hover { border-color: var(--accent); color: var(--accent); }
   button.ghost.on { background: var(--accent); border-color: var(--accent); color: #fff; }
@@ -113,10 +113,11 @@
   .rchunk .cl { display: block; font-size: 10.5px; color: var(--sub); margin-bottom: 2px; }
   .rfoot { margin-top: 9px; padding-top: 8px; border-top: 1px dashed var(--line);
            font-size: 12px; color: var(--sub); line-height: 1.5; }
-  /* QP 解读条：标签 + 值，替代抽象 chips */
-  .qpread { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-            gap: 8px; margin-top: 12px; }
-  .qpi { background: var(--chip); border-radius: 10px; padding: 8px 11px; }
+  /* QP 解读条：标签 + 值，替代抽象 chips。
+     恒定一行：flex 不换行，窗口变窄时单元格压缩、极限时横向滚动 */
+  .qpread { display: flex; flex-wrap: nowrap; gap: 8px; margin-top: 12px;
+            overflow-x: auto; }
+  .qpi { flex: 1 0 110px; background: var(--chip); border-radius: 10px; padding: 8px 11px; }
   .qpi .k { font-size: 10.5px; color: var(--sub); margin-bottom: 1px; }
   .qpi .v { font-size: 12.5px; font-weight: 600; }
   .qpi .v .sub { font-weight: 400; color: var(--sub); font-size: 11px; }
@@ -279,6 +280,20 @@
   @keyframes r { to { transform: rotate(360deg); } }
   .hidden { display: none !important; }
   .err { color: var(--bad); }
+  /* ============ Agent 模式（ReAct 轨迹 + 引用作答） ============ */
+  .acard { background: linear-gradient(180deg, #f5f8ff 0%, #fff 55%);
+           border: 1px solid #d3e0fb; border-radius: 12px; padding: 14px 16px; margin-bottom: 12px; }
+  .acard .ahead { display: flex; align-items: center; gap: 8px; font-weight: 700;
+                  font-size: 13px; margin-bottom: 7px; }
+  .acard .ahead .adot { width: 8px; height: 8px; border-radius: 50%; flex: none;
+                        background: var(--accent); box-shadow: 0 0 0 3px rgba(47,107,255,.15); }
+  .acard .ahead .meta { margin-left: auto; font-weight: 400; font-size: 11px; color: var(--sub); }
+  .acard .atext { font-size: 13.5px; line-height: 1.75; white-space: pre-wrap; }
+  .atl { margin: 0 0 14px; }
+  .atl .ftl .fl { max-width: 640px; }
+  .atl .ftl .th { color: var(--sub); font-size: 11.5px; }
+  .badge.deg { color: #b25000; background: #fff4e8; border: 1px solid #f3d9bd;
+               border-radius: 6px; padding: 1px 8px; font-size: 10.5px; font-weight: 600; }
   /* QP JSON 右侧抽屉 */
   #drawer { position: fixed; top: 0; right: -560px; width: 540px; max-width: 92vw; height: 100vh;
             background: var(--card); border-left: 1px solid var(--line); z-index: 50;
@@ -358,6 +373,8 @@
       <input type="text" id="q" placeholder="输入 query，如：智谱最新公告 / 小米股价趋势"
              onkeydown="if(event.key==='Enter')doSearch()">
       <button id="btnSearch" class="cta" onclick="doSearch()">检索</button>
+      <button id="btnAgent" class="ghost" onclick="toggleAgent()"
+              title="Agentic 检索：Planner 多轮决策（双源并行检索 / 引用综合作答），耗时约 1–3 分钟">Agent</button>
     </div>
     <div id="hotChips" class="chips" style="margin-top:10px"></div>
     <div class="row">
@@ -368,6 +385,7 @@
   </div>
 
   <div id="resultsCard" class="card hidden">
+    <div id="agentCard"></div>
     <div id="fallbackBar"></div>
     <div id="results"></div>
   </div>
@@ -736,7 +754,7 @@ function loadAbout() {
     $('pvEngines').innerHTML = eng.map((e, i) =>
       `<span class="chip"><b>${esc(e)}</b>${i === 0 ? ' 首选' : ''}</span>`).join('') || '—';
     const SWN = {llm_intent: 'LLM 意图', llm_first: 'LLM 优先级联', llm_ner: 'LLM NER',
-                 embedding_recall: 'EMB 召回', rerank: 'Rerank 精排'};
+                 embedding_recall: 'EMB 召回', rerank: 'Rerank 精排', agent: 'Agent 循环'};
     const sw = c.switches || {};
     $('pvSwitches').outerHTML = kv(Object.keys(SWN).map(k =>
       [SWN[k], sw[k] ? '<span style="color:var(--good)">on</span>' : '<span style="color:var(--warn)">off</span>']))
@@ -789,23 +807,60 @@ loadHot(false);
 function hotSearch(el) { $('q').value = el.textContent; doSearch(); }
 
 // ---------------- 检索 ----------------
+let agentMode = false;
+function toggleAgent() {
+  agentMode = !agentMode;
+  $('btnAgent').classList.toggle('on', agentMode);
+}
+
+const ACTION_ZH = {search: '双源检索', content_search: '库内检索', web_search: 'Web 检索', answer: '收束作答'};
+function renderAgent(data) {
+  const steps = data.steps || [];
+  const argsZh = a => a && (a.sub_queries ? '拆分 ' + a.sub_queries.length + ' 子查询'
+    : (a.query ? '「' + a.query + '」' : ''));
+  const tl = steps.map(st => {
+    const obs = st.observation || {};
+    const deg = (st.thought || '').includes('降级') || (st.thought || '').includes('不可用')
+      ? ' <span class="badge deg">降级</span>' : '';
+    return `<div class="ftl"><span class="fl"><b>R${st.round}</b> ${esc(ACTION_ZH[st.action] || st.action)}${deg}
+      <span class="th">· ${esc(argsZh(st.args) || '')}${esc(st.thought || '')}</span></span>
+      <span class="fn">${obs.n_new_docs ? '+' + obs.n_new_docs + ' docs' : ''}</span></div>`;
+  }).join('');
+  const ans = data.answer;
+  const head = `<div class="ahead"><span class="adot"></span>Agent 作答
+    <span class="meta">${data.rounds} 轮 · ${data.docs_count} 篇参考 · ${Math.round((data.latency?.total_ms || 0) / 100) / 10}s
+    ${data.degraded ? '<span class="badge deg">降级单发</span>' : ''}</span></div>`;
+  // 参考文档不在此处罗列成标题链接——统一由下方结果卡片展示（与普通检索一致），
+  // 答案中的 [n] 编号即对应这些结果文档
+  const ansHtml = ans
+    ? `<div class="atext">${esc(ans)}</div>`
+    : `<div class="atext" style="color:var(--sub)">未能综合作答，以下为检索结果。</div>`;
+  $('agentCard').innerHTML =
+    `<div class="acard">${head}${ansHtml}</div>` +
+    (steps.length ? `<div class="atl"><div class="dlabel" style="margin-bottom:6px">推理轨迹</div>${tl}</div>` : '');
+}
+
 async function doSearch() {
   const q = $('q').value.trim();
   if (!q) return;
+  const agent = agentMode;   // 请求期间锁定模式：中途切换 Agent 按钮不影响本次请求与渲染
   const btn = $('btnSearch');
   btn.disabled = true;
   $('searchSpin').classList.remove('hidden');
   const t0 = Date.now();
   const timer = setInterval(() => {
     const s = Math.round((Date.now() - t0) / 1000);
-    $('searchStatus').textContent = `检索中… ${s}s` +
-      (s > 5 ? '（本地库未命中，正在实时爬虫兜底，最长约 30–60 秒）' : '');
+    $('searchStatus').textContent = agent
+      ? `Agent 检索中… ${s}s（多轮决策 + 双源并行检索 + 引用综合，约 1–3 分钟）`
+      : `检索中… ${s}s` +
+        (s > 5 ? '（本地库未命中，正在实时爬虫兜底，最长约 30–60 秒）' : '');
   }, 500);
   try {
-    const res = await fetch('/search/content', {
+    const res = await fetch(agent ? '/agent/search' : '/search/content', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({query: q, top: 8, min_score: +$('minScore').value,
-                            min_recall: +$('minRecall').value})
+      body: agent ? JSON.stringify({query: q, top: 8})
+                  : JSON.stringify({query: q, top: 8, min_score: +$('minScore').value,
+                                    min_recall: +$('minRecall').value})
     });
     const text = await res.text();
     let data;
@@ -813,6 +868,8 @@ async function doSearch() {
     catch (_) { throw new Error('服务响应为空——请用 http://localhost:8100 访问本页（而非静态预览）'); }
     if (!res.ok) throw new Error(data.detail || ('HTTP ' + res.status));
     lastQP = data.qp;
+    $('agentCard').innerHTML = '';
+    if (agent && data.rounds !== undefined) renderAgent(data);
     renderSearch(data, q);
     refreshLib();   // 兜底入库后 docs 计数可能变化，检索后同步刷新
   } catch (e) {
@@ -820,6 +877,7 @@ async function doSearch() {
     $('results').innerHTML = `<p class="err">检索失败：${esc(e.message)}</p>`;
     $('qpRead').innerHTML = '';
     $('funnel').innerHTML = '';
+    $('agentCard').innerHTML = '';
   } finally {
     clearInterval(timer);
     $('searchStatus').textContent = '';
@@ -841,9 +899,11 @@ const SWITCH_GROUPS = [
     {k: 'embedding_recall', n: 'EMB 召回', d: 'Chunk 级 embedding 第三路向量召回'}]},
   {module: '排序', color: '#34c759', items: [
     {k: 'rerank', n: 'Rerank 精排', d: 'qwen3.7-text-rerank 对融合结果重排'}]},
+  {module: 'Agent 循环', color: '#ff375f', items: [
+    {k: 'agent', n: 'Agentic 检索循环', d: '总闸：Planner LLM 多轮决策（双源并行检索 / 引用作答，step-5-preview 免费模型）；关闭后 /agent/search 降级单发'}]},
 ];
 const SWITCH_LABELS = {llm_intent: 'LLM 意图', llm_first: 'LLM 优先级联', llm_ner: 'LLM NER',
-                       embedding_recall: 'EMB 召回', rerank: 'Rerank 精排'};
+                       embedding_recall: 'EMB 召回', rerank: 'Rerank 精排', agent: 'Agent 循环'};
 
 async function loadConfig() {
   try {
@@ -907,7 +967,9 @@ function startIngestPoll(query, baseChip) {
 }
 
 function renderSearch(data, q) {
-  const qp = data.qp;
+  // agent 首轮走 web_search 等场景 qp 可能为 null：给空壳保证面板不崩
+  const qp = data.qp || {intents: [], entities: [], recall: [], time: {},
+                         tier: -1, latency_ms: {}};
   const lat = data.latency || qp.latency_ms || {};   // 优先端到端分段计时
   const diag = data.diag || {};
   const fb = data.fallback_crawl || {};
@@ -930,7 +992,7 @@ function renderSearch(data, q) {
   else if (tw && anchorZh !== '无') tMain = anchorZh;
   else tMain = '不限';
   cells.push(['时效', `${esc(tMain)}<span class="sub">${tw ? ` · 近 ${tw} 天${tc}` : tc}</span>`]);
-  if (qp.slots) cells.push(['对象类型', esc(qp.slots.object_type || '—') + (ent ? `<span class="sub"> · ${esc(ent.text)}</span>` : '')]);
+  if (qp.recall && qp.recall[0]) cells.push(['召回通道', esc(qp.recall[0].channel || '—') + (ent ? `<span class="sub"> · ${esc(ent.text)}</span>` : '')]);
   const ms = lat.total_ms;
   const fmtD = m => m == null ? '—' : (m < 1000 ? Math.round(m) + ' ms' : (m / 1000).toFixed(1) + ' s');
   const latParts = [];
@@ -997,41 +1059,77 @@ function renderSearch(data, q) {
 
   // ---- 结果卡片：左分数（短条）右最相关片段，底部正文前 250 字 ----
   const cards = data.results.map((r, i) => {
+    // web 实时文档没有库内打分体系：显示「web 实时」而非 0% 相关度，
+    // mini bars 换成来源域名/日期，摘要以与库内 chunk 相同的版式展示（对齐观感）
+    const isWeb = r.content_type === 'web';
     const sub = r.sub_scores || {};
     const hasRR = sub.rerank != null;
     // rerank 分（精排）与召回分（chunk 级 emb 余弦）是两个体系：主分数按可用者显示
     const relPct = Math.round((hasRR ? sub.rerank : (sub.vec ?? r.score)) * 100);
     const relLbl = hasRR ? 'rerank 相关度' : '召回相关度';
     const bmPct = Math.min(100, (sub.bm25 || 0) / (diag.max_bm25 || 1) * 100);
-    const mb = (name, cls, pct) =>
-      `<div class="mb ${cls}"><span class="name">${name}</span><div class="bar"><i style="width:${Math.max(0, Math.min(100, pct))}%"></i></div></div>`;
+    const mb = (name, cls, pct, tip) =>
+      `<div class="mb ${cls}" title="${tip || ''}"><span class="name">${name}</span><div class="bar"><i style="width:${Math.max(0, Math.min(100, pct))}%"></i></div></div>`;
+    const webDomain = isWeb
+      ? (r.url || '').replace(/^https?:\/\/(www\.)?/, '').split(/[/?#]/)[0] : '';
+    // 权威度：所有卡片通用信息（库内/web 均按来源域名分级）
+    const AUTH_LBL = {3: '官方权威', 2: '专业财经', 1: '综合来源', 0: '论坛/UGC'};
+    const AUTH_TIP = '权威度分级：3★ 官方权威（政府/监管/交易所/央媒/头部财媒）；2★ 专业财经媒体；1★ 综合门户；0★ 论坛/UGC（可信度最低）';
+    const authLv = r.authority;
+    const authTag = (authLv != null)
+      ? `<span class="tag" title="${AUTH_TIP}" style="color:${authLv >= 3 ? 'var(--good)' : (authLv === 2 ? 'var(--accent)' : 'var(--sub)')};border-color:var(--line)">${'★'.repeat(authLv)}${'☆'.repeat(3 - authLv)} ${esc(AUTH_LBL[authLv] || '综合来源')}</span>`
+      : '';
+    const relHtml = isWeb
+      ? (sub.rerank != null
+          ? `<div class="rel" title="rerank 精排：web 摘要与 query 的相关性打分（与库内文档同一重排模型，两源同权混排）"><div class="num">${Math.round(sub.rerank * 100)}<span style="font-size:11px">%</span></div><div class="lbl">rerank 相关度</div></div>`
+          : `<div class="rel" title="web 实时文档来自搜索引擎实时抓取，本轮未打分"><div class="num" style="font-size:16px">web</div><div class="lbl">实时来源</div></div>`)
+      : `<div class="rel" title="rerank 精排：重排模型对「query 与该文档最相关片段」的相关性打分，展示分即排序分"><div class="num">${relPct}<span style="font-size:11px">%</span></div><div class="lbl">${relLbl}</div></div>`;
     const embScore = (r.best_chunk && typeof r.best_chunk === 'object') ? r.best_chunk.emb : null;
     const chunkRaw = r.best_chunk
       ? (typeof r.best_chunk === 'object' ? r.best_chunk.text : r.best_chunk) : '';
     const PREVIEW_LEN = 120;   // chunk 预览与正文预览统一固定字数
     const chunkTxt = String(chunkRaw).slice(0, PREVIEW_LEN);
+    // mini bars 三件套全卡通用：语义 / 关键词 / 链指。
+    // web 文档的关键词 = 分词覆盖度（不在 BM25 索引内），库内 = BM25 归一化
+    const kwPct = sub.kw != null ? Math.round(sub.kw * 100) : bmPct;
+    const kwTip = sub.kw != null
+      ? '关键词覆盖：query 分词在网页标题/摘要中的命中比例'
+      : '关键词匹配（BM25）：query 的字面词在文档中的命中强度，按本轮结果中的最高分归一化';
+    const miniHtml = `<div class="mini">
+        ${mb('语义', 'vc', embScore != null ? embScore * 100 : 0,
+             '语义召回：该文档（最相关片段/网页摘要）与 query 的向量（embedding）相似度，衡量"意思相近"')}
+        ${mb('关键词', 'bm', kwPct, kwTip)}
+        ${mb('链指', 'ent', sub.ent_link ? 100 : 0,
+             '实体链指：query 的核心实体（公司/行业等）是否命中，命中=满格，未命中=空格')}
+      </div>`;
     const isDev = document.body.classList.contains('dev');
     const bcMeta = (isDev && r.best_chunk && typeof r.best_chunk === 'object')
       ? `${esc(r.best_chunk.chunk_id || '')} · emb ${r.best_chunk.emb ?? '—'} · doc ${esc(r.best_chunk.doc_id || '')} #${r.best_chunk.seq ?? '—'}`
       : '最相关片段';
     const snip = r.snippet || '';
     const dateOk = r.date && r.date <= new Date().toISOString().slice(0, 10);
-    const dateTag = dateOk ? `<span class="tag date" title="doc 发布日期">${esc(r.date)}</span>` : '';
+    const dateTag = dateOk ? `<span class="tag date" title="doc 发布日期">${esc(String(r.date).slice(0, 10))}</span>` : '';
+    const refTag = r.ref ? `<span class="tag ref" style="border-color:var(--good);color:var(--good)" title="Agent 答案引用的文档 [${r.ref}]">[${r.ref}]</span>` : '';
+    const typeTxt = isWeb ? 'web 实时' : esc(r.content_type);
+    // 摘要块：库内 = 最相关 chunk；web = 搜索摘要（同一版式位置，观感一致）
+    const chunkHtml = isWeb
+      ? `<div class="rchunk">${snip ? `<span class="cl">网页摘要</span>${esc(snip.slice(0, PREVIEW_LEN))}${snip.length > PREVIEW_LEN ? '…' : ''}` : ''}</div>`
+      : `<div class="rchunk">${chunkTxt ? `<span class="cl">${bcMeta}</span>${esc(chunkTxt)}${String(chunkRaw).length > PREVIEW_LEN ? '…' : ''}` : ''}</div>`;
     return `<div class="rcard">
       <div class="rhead"><span class="rank">${i + 1}</span><a href="${esc(r.url)}" target="_blank">${esc(r.title)}</a>
-        <span class="tag">${esc(r.content_type)}${sub.ent_link ? ' · 链指' : ''}${sub.web_fallback ? ' · 兜底' : ''}</span>${dateTag}</div>
+        <span class="tag" title="${isWeb ? '来源站点 ' + esc(webDomain) : ''}">${typeTxt}${sub.ent_link ? ' · 链指' : ''}${sub.web_fallback ? ' · 兜底' : ''}</span>${refTag}${authTag}${dateTag}</div>
       <div class="rbody">
         <div class="rscore">
-          <div class="rel"><div class="num">${relPct}<span style="font-size:11px">%</span></div><div class="lbl">${relLbl}</div></div>
-          <div class="mini">
-            ${mb('召回', 'vc', embScore != null ? embScore * 100 : 0)}
-            ${mb('BM25', 'bm', bmPct)}
-            ${mb('实体', 'ent', sub.ent_link ? 100 : 0)}
-          </div>
+          ${relHtml}
+          ${miniHtml}
         </div>
-        <div class="rchunk">${chunkTxt ? `<span class="cl">${bcMeta}</span>${esc(chunkTxt)}${String(chunkRaw).length > PREVIEW_LEN ? '…' : ''}` : ''}</div>
+        ${chunkHtml}
       </div>
-      <div class="rfoot">${esc(snip.slice(0, PREVIEW_LEN))}${snip.length > PREVIEW_LEN ? '…' : ''}</div>
+      ${isWeb
+        ? (r.content_head
+            ? `<div class="rfoot"><span style="display:block;font-size:10.5px;color:var(--sub);margin-bottom:2px">正文开头</span>${esc(String(r.content_head).slice(0, PREVIEW_LEN))}${String(r.content_head).length > PREVIEW_LEN ? '…' : ''}</div>`
+            : '')
+        : `<div class="rfoot">${esc(snip.slice(0, PREVIEW_LEN))}${snip.length > PREVIEW_LEN ? '…' : ''}</div>`}
     </div>`;
   }).join('');
   $('results').innerHTML = cards || '<p class="hint">无结果（两路搜索均未命中，兜底文档入库中，可稍后重试）</p>';

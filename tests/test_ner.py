@@ -41,10 +41,18 @@ def test_predictor_rule_fallback():
     assert all(e["source"] == "rule" for e in ents)
 
 
-def test_slots():
-    from qp.slots.extractor import extract_slots
-    text = "北方华创 002371 2026年8月 最新消息"
-    ents = find_entities(text)
-    slots, tinfo = extract_slots(text, ents, intent_ids=["INFO-07"])
-    assert slots["object_type"] == "个股"
-    assert tinfo["anchor"] in ("最新", "历史时点")
+def test_time_path():
+    """路三：时间路（v2.0 从 slots 抽出为独立模块）。"""
+    from qp.time.extractor import infer_time_anchor
+    t = infer_time_anchor("北方华创 002371 2026年8月 最新消息")
+    assert t["anchor"] in ("最新", "历史时点")
+    assert t["bucket"] in ("one_year", "no_limit")
+
+
+def test_linkage_object_type():
+    """对象类型由 NER 实体内联推导（无独立 object_type 槽位）。"""
+    from qp.recall.linkage import object_type_of
+    ents = [{"type": "STOCK_CODE", "text": "002371"}]
+    assert object_type_of(ents) == "个股"
+    assert object_type_of([{"type": "MACRO", "text": "美联储"}]) == "宏观"
+    assert object_type_of([]) == "无特定对象"

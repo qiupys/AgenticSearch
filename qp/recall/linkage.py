@@ -1,14 +1,17 @@
 # -*- coding: utf-8 -*-
-"""意图 → 召回条件翻译层（复用 configs/recall_linkage.json）。
+"""意图 → 召回翻译层（v2.0 三路架构：意图的输出直接驱动召回通道）。
 
-输入：intents + slots + entities + 原始 query
-输出：List[RecallCondition]（主意图置顶，含行业过滤/情绪策略/内容类型偏好/时间窗）
+输入：intents + entities + TimeInfo（时间路产物）+ 原始 query
+输出：List[RecallCondition]（主意图置顶，每个意图带专用召回 channel）
 
-渠道建模（对齐「时效性/内容类型走独立 channel」的设计）：
-  - content channel：query 表面词 -> 内容类型频道（公告/财报/研报/新闻），
-    命中时覆盖意图默认 content_type_pref（频道优先，意图默认补充在后）
-  - time channel：time_anchor -> freshness/absolute/range/forward/none；
-    「最新」的时间窗支持按意图覆盖（如公告 30d、财报 90d，默认 7d）
+核心设计（意图×召回深度绑定）：
+  - 每个意图映射一个召回 channel（news/disclosure/research/forecast/
+    screener/education/multimedia/none，定义在 recall_linkage.json），
+    召回引擎为每个 channel 生成独立排序路参与 RRF 融合
+  - 内容频道：query 表面词（公告/财报/研报/新闻）命中时叠加内容类型偏好
+  - 时间通道：时间路 TimeInfo → freshness/absolute/range/forward/none，
+    「最新」窗口支持意图级覆盖（latest_window_days）
+  - 行业过滤：对象类型由 NER 实体内联推导（不再有独立 object_type 槽位）
 """
 from __future__ import annotations
 
@@ -17,7 +20,7 @@ import re
 from functools import lru_cache
 from typing import Dict, List, Optional
 
-from qp.common.schema import RecallCondition
+from qp.common.schema import RecallCondition, TimeInfo
 
 CONFIG_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "configs")
 
@@ -29,12 +32,12 @@ _CHANNEL_KEYWORDS: List[tuple] = [
     (re.compile(r"新闻|资讯|消息|动态"), ["news"]),
 ]
 
-# time_anchor -> time_channel
+# time anchor -> time_channel
 _TIME_CHANNEL = {"最新": "freshness", "历史时点": "absolute",
                  "区间": "range", "未来": "forward", "无": "none"}
 
-# 显式时效分桶 -> 时间窗（天）：覆盖意图默认窗口（绝对时间日期过滤在检索端做）
-_BUCKET_DAYS = {"in_one_day": 1, "one_week": 7, "one_month": 30, "one_year": 365}
+# 显式时效分桶 -> 时间窗（天）：覆盖意图默认窗口
+BUCKET_DAYS = {"in_one_day": 1, "one_week": 7, "one_month": 30, "one_year": 365}
 
 
 @lru_cache(maxsize=1)
@@ -43,18 +46,34 @@ def _linkage() -> dict:
     return _load(os.path.join(CONFIG_DIR, "recall_linkage.json"))
 
 
-def _industry_condition(object_type: str) -> Optional[Dict]:
-    return _linkage()["industry_by_object_type"].get(object_type)
+def object_type_of(entities: List[dict], query: str = "") -> str:
+    """对象类型：NER 实体类型直接推导（原 slots.object_type，无独立槽位）。
+
+    个股/公司 > 板块指数 > 基金ETF > 行业 > 宏观 > 无特定对象。
+    """
+    types = {e.get("type") or e.get("type_", "") for e in entities}
+    text = query or ""
+    if types & {"STOCK", "STOCK_CODE", "COMPANY"}:
+        return "个股"
+    if "INDEX" in types or re.search(r"板块|概念", text):
+        return "板块指数"
+    if "FUND" in types:
+        return "基金ETF"
+    if "INDUSTRY" in types:
+        return "行业"
+    if "MACRO" in types:
+        return "宏观"
+    return "无特定对象"
 
 
-def _time_channel_window(intent_id: str, anchor: str) -> Optional[int]:
-    """「最新」时间窗：意图覆盖（latest_window_days）> 全局默认。"""
-    if anchor != "最新":
-        return _linkage()["time_anchor_defaults"].get(anchor, {}).get("window_days")
-    rule = _linkage()["intent_to_recall"].get(intent_id, {})
-    if rule.get("latest_window_days") is not None:
-        return int(rule["latest_window_days"])
-    return _linkage()["time_anchor_defaults"].get("最新", {}).get("window_days")
+def _industry_condition(entities: List[dict], query: str) -> Optional[Dict]:
+    obj = object_type_of(entities, query)
+    industry = _linkage()["industry_by_object_type"].get(obj)
+    if industry and industry.get("level1") == "entity_link":
+        # 行业对象：实体链接（INDUSTRY 实体文本 → 行业分类映射表）
+        ind_ents = [e["text"] for e in entities if e["type"] == "INDUSTRY"]
+        industry = {"level1": "entity_link", "matched_industries": ind_ents} if ind_ents else None
+    return industry
 
 
 def extract_content_channel(query: str) -> List[str]:
@@ -68,42 +87,32 @@ def extract_content_channel(query: str) -> List[str]:
     return chans
 
 
-def translate(intents: List[dict], slots: Dict, entities: List[dict],
+def translate(intents: List[dict], entities: List[dict], time_info: TimeInfo,
               query: str = "") -> List[RecallCondition]:
-    """意图驱动的召回条件翻译。情绪 boost 规则：query/实体中出现利好利空信号时叠加。"""
+    """意图驱动的召回条件翻译（v2.0：每个意图输出专用召回 channel）。"""
     if not intents:
         return []
-    obj = slots.get("object_type", "无特定对象")
-    anchor = slots.get("time_anchor", "无")
-    industry = _industry_condition(obj)
-    if industry and industry.get("level1") == "entity_link":
-        # 行业对象：实体链接（INDUSTRY 实体文本 → 行业分类映射表，生产离线词典）
-        ind_ents = [e["text"] for e in entities if e["type"] == "INDUSTRY"]
-        industry = {"level1": "entity_link", "matched_industries": ind_ents} if ind_ents else None
+    link = _linkage()
+    anchor = time_info.anchor
+    bucket = time_info.bucket
+    industry = _industry_condition(entities, query)
 
     # 内容频道：query 关键词命中 > 意图默认
     query_channel = extract_content_channel(query) if query else []
     time_channel = _TIME_CHANNEL.get(anchor, "none")
-    # 显式时效分桶（近一周/今年/2026年8月 等）-> 精确窗口，覆盖意图默认
-    bucket = None
-    if query:
-        from qp.slots.extractor import detect_time_bucket
-        bucket = detect_time_bucket(query)
-    bucket_days = _BUCKET_DAYS.get(bucket) if bucket else None
+    bucket_days = BUCKET_DAYS.get(bucket) if bucket else None
     # 默认时效：无显式时间的资讯类 query 按最新处理（freshness + 意图默认窗）
-    default_fresh = False
     if time_channel == "none" and bucket in (None, "no_limit") \
             and intents and intents[0].get("domain") != "SYSTEM":
         time_channel = "freshness"
-        default_fresh = True
 
     out: List[RecallCondition] = []
     for it in intents:
         iid = it["intent_id"]
-        rule = _linkage()["intent_to_recall"].get(iid)
+        rule = link["intent_to_recall"].get(iid)
         if rule is None:
-            rule = {"sentiment": "any", "content_type_pref": [], "role": "未配置", "weight": 0.3}
-        sentiment = rule["sentiment"]
+            rule = {"channel": "news", "sentiment": "any", "content_type_pref": [],
+                    "role": "未配置", "weight": 0.3}
         pref = list(query_channel)
         for t in rule.get("content_type_pref", []):
             if t not in pref:
@@ -113,18 +122,19 @@ def translate(intents: List[dict], slots: Dict, entities: List[dict],
         elif time_channel == "freshness":
             rule_w = rule.get("latest_window_days")
             window = int(rule_w) if rule_w is not None \
-                else (_time_channel_window(iid, "最新") or 30)
+                else (link["time_anchor_defaults"].get("最新", {}).get("window_days") or 30)
         else:
-            window = _time_channel_window(iid, anchor)
+            window = link["time_anchor_defaults"].get(anchor, {}).get("window_days")
         out.append(RecallCondition(
             intent_id=iid,
+            channel=rule.get("channel", "news"),
             role=rule["role"],
             weight=float(rule["weight"]),
-            sentiment=sentiment,
+            sentiment=rule["sentiment"],
             content_type_pref=pref,
-            industry=industry if iid not in ("SYSTEM-01", "SYSTEM-02", "SYSTEM-03", "SYSTEM-04") else None,
+            industry=industry if not iid.startswith("SYSTEM-") or iid == "SYSTEM-05" else None,
             time_window_days=window,
-            sort=_linkage()["time_anchor_defaults"].get(anchor, {}).get("sort"),
+            sort=link["time_anchor_defaults"].get(anchor, {}).get("sort"),
             time_channel=time_channel,
             time_bucket=bucket or "no_limit",
         ))

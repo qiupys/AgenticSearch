@@ -23,9 +23,9 @@ def test_pipeline_zh():
     assert out.tier in (0, 1, 2)
     if out.tier == 2:
         assert out.intents[0].source == "llm"
-    assert out.slots["object_type"] == "个股"
     assert out.entities and any(e.type == "STOCK_CODE" for e in out.entities)
     assert out.recall and out.recall[0].intent_id == "INFO-07"
+    assert out.recall[0].channel == "news"          # 意图专用召回通道
     assert "total_ms" in out.latency_ms
     assert out.stats_category_16 is not None
 
@@ -48,7 +48,10 @@ def test_pipeline_schema_roundtrip():
     out = _pipe().process("KDJ是什么意思")
     d = out.to_dict()
     assert d["intents"][0]["intent_id"] == "SERVICE-01"
-    assert d["slots"]["composite"] == "单意图"
+    assert d["recall"][0]["channel"] == "education"   # 知识科普通道
+    assert "slots" not in d                            # v2.0 已移除 slots
+    assert d["time"]["bucket"] in ("no_limit", "one_week", "one_month",
+                                   "in_one_day", "one_year")
 
 
 def test_cache():

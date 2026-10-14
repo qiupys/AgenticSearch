@@ -1,12 +1,11 @@
 # -*- coding: utf-8 -*-
-"""QP 统一输出 Schema。
+"""QP 统一输出 Schema（v2.0 三路架构）。
 
-线上 QP 服务对每条 query 输出一个 QPOutput 结构：
-  intents   —— 多标签意图（1~3 个，跨域软解码）
-  slots     —— 正交槽位（object_type / time_anchor / composite / ...）
-  entities  —— NER 实体（STOCK / STOCK_CODE / INDEX / FUND / INDUSTRY / MACRO / TIME）
-  recall    —— 意图驱动的召回翻译条件（行业过滤 / 情绪策略 / 内容类型偏好 / 时间窗）
-  meta      —— tier / 耗时 / 版本等
+线上 QP 服务对每条 query 输出一个 QPOutput 结构，三路并行产出：
+  intents   —— 路一：多标签意图（1~3 个，级联：规则→模型→LLM）
+  entities  —— 路二：NER 实体（规则+LLM 级联 + 实体链指 + 市场定向）
+  time      —— 路三：时间锚点与时效分桶（纯规则）
+  recall    —— 意图驱动的召回翻译条件（意图×channel 深度绑定）
 
 该结构同时是离线评测的消费对象。
 """
@@ -17,7 +16,7 @@ import uuid
 from dataclasses import dataclass, field, asdict
 from typing import List, Optional, Dict, Any
 
-QP_OUTPUT_VERSION = "1.0"
+QP_OUTPUT_VERSION = "2.0"
 
 
 @dataclass
@@ -25,7 +24,7 @@ class Intent:
     intent_id: str                 # e.g. "INFO-07"
     domain: str                    # e.g. "INFO"
     confidence: float              # [0, 1]
-    source: str = "rule"           # rule | model | fallback
+    source: str = "rule"           # rule | model | llm | fallback
 
 
 @dataclass
@@ -51,6 +50,7 @@ class TimeInfo:
 @dataclass
 class RecallCondition:
     intent_id: str
+    channel: str                   # 意图专用召回通道：news / disclosure / research / forecast / screener / education / multimedia / none
     role: str                      # 主召回 / 数据补充 / 辅助 / 不走内容召回 ...
     weight: float
     sentiment: str                 # any / neutral优先 / mixed / boost_positive / -
@@ -68,13 +68,12 @@ class QPOutput:
     normalized: str
     lang: str = "zh"                       # zh / en
     intents: List[Intent] = field(default_factory=list)
-    slots: Dict[str, Any] = field(default_factory=dict)
     entities: List[Entity] = field(default_factory=list)
     time: TimeInfo = field(default_factory=TimeInfo)
     recall: List[RecallCondition] = field(default_factory=list)
     stats_category_16: Optional[str] = None   # 产品 16 类口径（反向映射，供统计对齐）
-    tier: int = -1                          # 0 规则 / 1 模型 / 2 升级兜底
-    escalated: bool = False                 # 是否触发 Tier2 升级
+    tier: int = -1                          # 0 规则 / 1 模型 / 2 LLM/升级
+    escalated: bool = False                 # 是否触发升级路径
     latency_ms: Dict[str, float] = field(default_factory=dict)
     version: str = QP_OUTPUT_VERSION
     trace_id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
@@ -83,8 +82,7 @@ class QPOutput:
         return self.intents[0] if self.intents else None
 
     def to_dict(self) -> Dict[str, Any]:
-        d = asdict(self)
-        return d
+        return asdict(self)
 
     @staticmethod
     def timing(fn, *args, key: str, **kwargs):

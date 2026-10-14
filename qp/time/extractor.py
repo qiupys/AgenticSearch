@@ -1,10 +1,16 @@
 # -*- coding: utf-8 -*-
-"""槽位推断：object_type / time_anchor / composite / complexity / modality / output_form / trigger。
+"""时间路（QP 三路之一）：时效分桶 + 时间锚点推断。
 
-槽位不进分类树（对齐 v2.0 体系设计），全部由规则 + NER 实体结果推断。
+独立于意图/NER 的第三路：对 query 的时间表达做归一化与分桶，
+产物 TimeInfo（anchor/raw/normalized/bucket）直接驱动召回翻译层
+的时间通道（freshness/absolute/range/forward/none）与时间窗过滤。
+
+分桶对齐引擎的 timelimit 与库内日期过滤：
+  in_one_day / one_week / one_month / one_year / no_limit
 """
 from __future__ import annotations
 
+import datetime
 import os
 import re
 from functools import lru_cache
@@ -21,25 +27,12 @@ def _lexicons() -> dict:
         return yaml.safe_load(f)
 
 
-@lru_cache(maxsize=1)
-def _lex() -> dict:
-    lx = _lexicons()
-    return {
-        "index": [re.escape(x) for x in lx["index_names"]],
-        "fund": lx["fund_keywords"],
-        "industry": lx["industries"],
-        "macro": lx["macro_terms"],
-    }
-
-
 def _has_any(text: str, words: List[str]) -> Optional[str]:
     for w in words:
         if w and w in text:
             return w
     return None
 
-
-# ---------------- time ----------------
 
 _TIME_ABS = re.compile(r"(\d{4}年(\d{1,2}月)?(\d{1,2}日)?)|(\d{1,2}月\d{1,2}日)|(20\d{2}[-/.]\d{1,2}([-/.]\d{1,2})?)")
 _TIME_RANGE = re.compile(r"从.{2,14}到.{2,14}|\d{4}年至\d{4}年|至今|以来")
@@ -51,6 +44,7 @@ _BUCKET_WORDS = [
     ("one_month", ["本月", "近一月", "近一个月", "一个月内", "上月", "30天", "近30天"]),
     ("one_year", ["今年", "近一年", "一年内", "年内", "365天", "年度"]),
 ]
+
 
 def detect_time_bucket(text: str) -> str:
     """query 时效 -> 五桶之一：in_one_day / one_week / one_month / one_year / no_limit。
@@ -68,7 +62,6 @@ def detect_time_bucket(text: str) -> str:
         mo = re.search(r"[年/.-/](\d{1,2})", m.group(0))
         if y and mo:
             try:
-                import datetime
                 month = int(mo.group(1))
                 if 1 <= month <= 12:
                     dt = datetime.date(int(y.group(1)), month, 1)
@@ -90,7 +83,7 @@ def detect_time_bucket(text: str) -> str:
 
 
 def infer_time_anchor(text: str, entities: Optional[List[dict]] = None) -> Dict[str, str]:
-    """推断 time_anchor 槽位。
+    """推断时间锚点（时间路主入口）。
 
     query 可能同时含多个时间表达（如「最新公告 新闻 2026年8月」）：
     anchor 按优先级 区间 > 未来 > 最新 > 历史时点；raw 保留全部命中（| 分隔），
@@ -144,78 +137,3 @@ def _normalize_abs_time(raw: str) -> str:
             if d:
                 parts.append(f"{int(d.group(1)):02d}")
     return "-".join(parts) if parts else raw
-
-
-# ---------------- object_type ----------------
-
-def infer_object_type(text: str, entities: List[dict]) -> str:
-    """个股/公司 > 板块指数 > 基金ETF > 行业 > 宏观 > 无特定对象（按实体类型优先级）。"""
-    types = {e["type"] for e in entities}
-    if types & {"STOCK", "STOCK_CODE", "COMPANY"}:
-        return "个股"
-    if "INDEX" in types or re.search(r"板块|概念", text):
-        return "板块指数"
-    if "FUND" in types:
-        return "基金ETF"
-    if "INDUSTRY" in types or _has_any(text, _lex()["industry"]):
-        return "行业"
-    if "MACRO" in types or _has_any(text, _lex()["macro"]):
-        return "宏观"
-    return "无特定对象"
-
-
-# ---------------- 其余槽位 ----------------
-
-def infer_modality(text: str) -> str:
-    if re.search(r"图|图片|照片|截图|image|picture|chart|图里的|看图", text, re.I):
-        return "图片"
-    if re.search(r"文档|pdf|PDF|file|document|附件", text):
-        return "文档"
-    if re.search(r"网页|链接|url|webpage|website", text, re.I):
-        return "网页"
-    return "文本"
-
-
-def infer_output_form(text: str) -> str:
-    if re.search(r"可视化|画个图|做个图|图表|chart|graph|visuali[sz]e", text, re.I):
-        return "图表"
-    if re.search(r"生成(一份|一个|文件)|导出|下载|export|generate a (file|report)", text, re.I):
-        return "文件"
-    if re.search(r"代码|code|脚本|script|api", text, re.I):
-        return "代码"
-    return "文本"
-
-
-def infer_trigger(text: str) -> str:
-    if re.search(r"定时|每天|订阅|alert me|notify", text, re.I):
-        return "定时"
-    if re.search(r"监控|异动|提醒我|track", text, re.I):
-        return "事件触发"
-    return "即时"
-
-
-def infer_complexity(text: str) -> Optional[str]:
-    """仅 SELECT 域使用：多条件/推理词判复杂。"""
-    if not re.search(r"SELECT|筛选|选标的|受益|龙头|名单|概念股|哪些", text):
-        return None
-    if re.search(r"受益最大|最受益|弹性最大|符合.{2,20}(条件|要求|标准)|股价.{0,4}(低于|不超过|以下).{0,6}(元|块)且|同时", text):
-        return "复杂"
-    return "简单"
-
-
-def extract_slots(text: str, entities: List[dict], composite: bool = False,
-                  intent_ids: Optional[List[str]] = None) -> Dict[str, object]:
-    """槽位推断总入口。intent_ids 用于 complexity 槽位的域判定。"""
-    t = infer_time_anchor(text)
-    slots = {
-        "object_type": infer_object_type(text, entities),
-        "time_anchor": t["anchor"],
-        "composite": "复合" if composite else "单意图",
-        "modality": infer_modality(text),
-        "output_form": infer_output_form(text),
-        "trigger": infer_trigger(text),
-        "complexity": None,
-    }
-    if intent_ids and any((i or "").startswith("SELECT") for i in intent_ids):
-        slots["complexity"] = infer_complexity(text)
-    return slots, t

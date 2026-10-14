@@ -8,4 +8,14 @@ uvicorn>=0.29
 pydantic>=2.6
 pytest>=8.0
 
+# 服务运行依赖（search/service/app.py 与兜底搜索使用）
+requests>=2.31
+jieba>=0.42
+zhconv>=1.4
+rank_bm25>=0.2.2        # BM25 多路召回
+ddgs>=9.0               # web 兜底搜索（DuckDuckGo）
+akshare>=1.14           # 股票主数据接入（词表/语料构建）
+openpyxl>=3.1           # xlsx 数据读取
+onnxruntime>=1.17       # NER 轻量模型推理
+
 # 服务器/集群训练依赖见 requirements-train.txt（torch / transformers / onnxruntime）

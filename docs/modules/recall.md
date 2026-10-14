@@ -1,7 +1,7 @@
 # 召回模块（Recall）
 
 > **负责专家**：召回专家 —— 检索与语料建设
-> **代码位置**：`content_search/corpus.py`（数据契约）+ `content_search/recall.py`（召回逻辑）
+> **代码位置**：`search/engine/corpus.py`（数据契约）+ `search/engine/recall.py`（召回逻辑）
 > **独立升级承诺**：只要输入 `(query, qp, corpus, idx, search_cfg)` 输出 `(scored, best_chunk_of_doc, emb_client, diag)` 契约不变，排序模块与 API 无需任何改动。
 
 ## 1. 职责
@@ -10,13 +10,18 @@
 
 ```
 BM25 词面路 ──────────┐
+chunk emb 语义路 ─────┤
                       ├─ RRF 融合 ─ 意图软加权 ─ 过滤1 信息词噪声
-chunk emb 语义路 ─────┘                        （链指命中豁免）
-                                        ─ 过滤2 召回相关性阈值（emb，链指豁免）
-                                        ─ 过滤3 核心实体链指硬过滤
-                                        ─ 链指标记（ent_link，仅展示不参与排序）
-                                        ─ 过滤4 时效窗软过滤（time_starved 上报）
+意图专用通道 ─────────┘                        （链指命中豁免）
+（QP 每个意图一条独立       ─ 过滤2 召回相关性阈值（emb，链指豁免）
+  排序路，通道分=BM25×      ─ 过滤3 核心实体链指硬过滤
+  内容类型加成×情绪加成      ─ 链指标记（ent_link，仅展示不参与排序）
+  ×实体链指加成）            ─ 过滤4 时效窗软过滤（time_starved 上报）
 ```
+
+意图通道（v2.0）：`configs/recall_linkage.json` 的 channels 定义每个意图组的
+内容类型与时效特征；召回引擎为每个 weight>0 的意图条件生成独立排序路参与
+RRF——意图直接驱动召回，而非仅作展示标签。通道命中上报 `diag.channels`。
 
 ## 2. 数据契约（corpus.py）
 
@@ -34,7 +39,7 @@ chunk emb 语义路 ─────┘                        （链指命中豁
 ```python
 # 输入
 query       str          原始查询
-qp          QPOutput     QP 模块产物（用 entities/recall[0]/slots）
+qp          QPOutput     QP 模块产物（用 entities/time/recall×channel）
 corpus/idx  load_all()   数据契约
 search_cfg  dict         见下
 
@@ -71,6 +76,7 @@ diag               dict                          见下
 | `n_time_filtered` / `time_starved` | 时窗剔除数 / 时效无命中标志 |
 | `core_entity_coverage` | 库内是否有链指命中（0=无，供兜底） |
 | `info_tokens` | 本轮信息词（调试用） |
+| `channels` | 意图通道命中：{channel: {intent, top[3]}} |
 
 ## 6. 升级指南（召回专家必读）
 
@@ -80,8 +86,8 @@ diag               dict                          见下
    不同模型会静默错位——**换模型必须清缓存**）。
 3. **改融合算法**（RRF→加权线性等）：只动 `_rrf`；score 语义变化需同步排序模块文档
    （排序输入的 score 仅用于 rerank 前的候选排序，rerank on 时最终顺序与它无关）。
-4. **语料重建**：`scripts/build_content_library.py`（标题清洗 clean_title 已内置）；
-   增量入库走 `scripts/inline_crawl.py`（兜底自愈，30min TTL 防重爬）。
+4. **语料重建**：`tools/build_content_library.py`（标题清洗 clean_title 已内置）；
+   增量入库走 `tools/inline_crawl.py`（兜底自愈，180s TTL 防重爬）。
 5. **回归底线**：`pytest tests/ -q` + 冒烟：一次正常检索（漏斗各级数字合理）+ 一次
    触发兜底（`missing_entities` → 入库 → 复检命中）。
 

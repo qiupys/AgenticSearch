@@ -14,7 +14,8 @@
   ├─ 1. rerank 全候选重排（≤64，输入 = doc 最相关 chunk）
   │     · 展示分 = 排序分 = rerank 原始分（铁律：展示什么就按什么排）
   │     · 链指/频道加成不参与排序，仅作为 sub 标记
-  ├─ 2. rerank 相关性阈值过滤（含 API 漏返回的无分文档，一律丢弃）
+  ├─ 2. rerank 相关性阈值过滤（含 API 漏返回的无分文档，一律丢弃；
+  │     vec-only 文档——词面零命中仅 embedding 召回——按更高门槛丢弃导航页噪声）
   ├─ 3. 同文去重（URL 参数归一必去重；标题相似：同域 ≥0.6 / 跨域 ≥0.85）
   └─ 4. finalize：截断 top，每条附 best_chunk
 ```
@@ -26,6 +27,7 @@
 | **rerank 覆盖全部候选**（`RERANK_CAND_LIMIT=64`），而非只重排头部 | 只重排头部会让无 rerank 分的尾部文档绕过阈值过滤，兜底场景（高分不足）混入低分结果 |
 | **无 rerank 分 = 丢弃**，不回退召回分 | 展示分与排序分必须同源；rerank 引擎挂掉时整体降级（`rerank=fail`），不混两种分数 |
 | **排序分 = rerank 原始分** | 链指/频道加成曾导致「显示 0.71 的排在 1.0 前面」的观感错乱；加成仅作 `ent_link` 标记展示 |
+| **vec-only 文档用更高门槛**（`vec_only_min_rerank=0.5`） | bm25=0 的纯向量召回噪声率极高：导航页 boilerplate（如"资金流向首页"含"房价/行情"词）、正文侧栏词都可能向量凑近（实测"上海楼市"query 混入东方财富导航页与含楼市侧栏的海底捞文章）；词面零命中 + 中低语义分 ≈ 噪声 |
 | **去重在 rerank 之后** | 同文变体 rerank 分相近，去重保留排序最靠前的一条 |
 
 ## 3. 输入 / 输出契约
@@ -41,7 +43,7 @@ search_cfg         dict
 
 # 输出
 scored   list[(rerank_score, doc, sub)]            sub 新增 rerank 键
-diag     {rerank: on/off/fail, n_below_threshold, n_dup_filtered}
+diag     {rerank: on/off/fail, n_below_threshold, n_vec_only_filtered, n_dup_filtered}
 results  finalize() -> [(score, doc, sub, best_chunk), ...]
 ```
 
@@ -50,6 +52,7 @@ results  finalize() -> [(score, doc, sub, best_chunk), ...]
 | 键 | 默认 | 前端入口 |
 |---|---|---|
 | `min_rerank_score` | 0.3 | 开发者面板 `排序模块 · 相关性阈值` 滑杆（`min_score` 请求参数） |
+| `vec_only_min_rerank` | 0.5 | 代码默认（bm25=0 文档的 rerank 门槛；调低会放进导航页噪声） |
 | `RERANK_CAND_LIMIT` | 64 | 代码常量（改需评估 rerank API 延迟） |
 
 ## 5. 升级指南（排序专家必读）

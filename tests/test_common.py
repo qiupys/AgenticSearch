@@ -30,5 +30,7 @@ def test_taxonomy():
 def test_schema():
     out = QPOutput(query="q", normalized="q")
     d = out.to_dict()
-    assert d["version"] == "1.0" and d["tier"] == -1
+    assert d["version"] == "2.0" and d["tier"] == -1
+    assert "slots" not in d          # v2.0 三路架构：slots 已移除
+    assert "time" in d and "recall" in d
     assert out.primary_intent() is None

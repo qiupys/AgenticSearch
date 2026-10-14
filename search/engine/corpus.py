@@ -33,12 +33,22 @@ _CHUNK_LOCK = threading.Lock()
 
 
 def load_all() -> tuple:
-    """加载语料 + BM25 索引，并初始化 jieba 用户词典。"""
+    """加载语料 + BM25 索引，并初始化 jieba 用户词典。
+
+    自检：bm25 索引文档数与 corpus 不一致（多进程同时入库 / 重建竞态导致
+    index.pkl 落后于 corpus.jsonl）时当场重建索引，避免召回层 shape 错乱。
+    """
     import jieba
     with open(os.path.join(CONTENT_DIR, "corpus.jsonl"), encoding="utf-8") as f:
         corpus = [json.loads(line) for line in f if line.strip()]
     with open(os.path.join(CONTENT_DIR, "index.pkl"), "rb") as f:
         idx = pickle.load(f)
+    n_bm25 = len(getattr(idx.get("bm25"), "doc_freqs", ()) or ())
+    if n_bm25 != len(corpus):
+        from tools.build_content_library import build_index
+        build_index(corpus)   # 自愈重建（~500 docs 秒级）
+        with open(os.path.join(CONTENT_DIR, "index.pkl"), "rb") as f:
+            idx = pickle.load(f)
     dict_path = os.path.join(ROOT, "data", "dict", "jieba_user_dict.txt")
     if os.path.exists(dict_path):
         jieba.load_userdict(dict_path)
